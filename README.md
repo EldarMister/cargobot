@@ -14,7 +14,7 @@
 - чтение всех листов `.xlsx` и `.xls`, журнал каждой строки импорта;
 - идемпотентное обновление по уникальному трек-коду и история смены статусов;
 - уведомления только при появлении посылки, реальной смене статуса или даты доставки;
-- PostgreSQL, Redis FSM, Alembic, Docker Compose и тесты.
+- PostgreSQL, FSM в памяти, Alembic, Docker Compose и тесты.
 
 ## 1. Создание бота и получение токена
 
@@ -44,15 +44,15 @@ ADMIN_IDS=123456789,987654321
 Copy-Item .env.example .env
 ```
 
-Минимально задайте `BOT_TOKEN`, `ADMIN_IDS` и надёжный `POSTGRES_PASSWORD`. Для запуска
-через Docker оставьте хосты `postgres` и `redis`. Для локального запуска приложения вне
-Docker замените их на `localhost`.
-
-Можно целиком переопределить подключение к БД переменной:
+Минимально задайте `BOT_TOKEN`, `ADMIN_IDS` и подключение к PostgreSQL одной переменной:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://cargo:password@localhost:5432/cargo
 ```
+
+На Railway достаточно ссылки `DATABASE_URL=${{Postgres.DATABASE_URL}}`: приложение само
+подставит асинхронный драйвер. Redis не требуется. Незавершённый пошаговый диалог сбросится
+при перезапуске процесса, но постоянные данные пользователей и посылок останутся в PostgreSQL.
 
 ## 4. Запуск через Docker
 
@@ -63,20 +63,20 @@ docker compose up -d --build
 docker compose logs -f bot
 ```
 
-Контейнер `bot` ждёт healthcheck PostgreSQL и Redis, затем автоматически выполняет
+Контейнер `bot` ждёт healthcheck PostgreSQL, затем автоматически выполняет
 `alembic upgrade head` и запускает polling. Остановка без удаления данных:
 
 ```powershell
 docker compose down
 ```
 
-Именованные volumes `postgres_data` и `redis_data` сохраняются. Команда
+Именованный volume `postgres_data` сохраняет базу. Команда
 `docker compose down -v` удалит их без возможности восстановления и для обычной остановки
 не нужна.
 
 ## 5. Локальный запуск
 
-Нужны Python 3.12+, работающие PostgreSQL и Redis.
+Нужны Python 3.12+ и работающий PostgreSQL.
 
 ```powershell
 python -m venv .venv

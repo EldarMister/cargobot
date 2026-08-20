@@ -4,7 +4,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.bot.handlers import register_routers
 from app.bot.middlewares import DatabaseMiddleware
@@ -22,7 +22,7 @@ async def main() -> None:
         raise RuntimeError("BOT_TOKEN is empty. Fill it in .env before starting the bot.")
 
     engine, session_factory = create_engine_and_sessionmaker(settings)
-    storage = RedisStorage.from_url(settings.redis_url)
+    storage = MemoryStorage()
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dispatcher = Dispatcher(storage=storage)
     dispatcher.update.outer_middleware(DatabaseMiddleware(session_factory))
