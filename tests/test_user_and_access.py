@@ -56,6 +56,40 @@ async def test_client_sees_only_own_parcels(session):
     assert [parcel.tracking_number for parcel in parcels] == ["TRACK000001"]
 
 
+async def test_active_and_delivered_parcels_are_separated(session):
+    session.add_all(
+        [
+            Parcel(
+                tracking_number="ACTIVE000001",
+                client_code="J-0001",
+                status=ParcelStatus.IN_TRANSIT,
+            ),
+            Parcel(
+                tracking_number="ISSUED000001",
+                client_code="J-0001",
+                status=ParcelStatus.DELIVERED,
+            ),
+        ]
+    )
+    await session.commit()
+    repository = ParcelRepository(session)
+
+    active = await repository.active_for_client("J-0001")
+    delivered = await repository.delivered_for_client("J-0001")
+
+    assert [parcel.tracking_number for parcel in active] == ["ACTIVE000001"]
+    assert [parcel.tracking_number for parcel in delivered] == ["ISSUED000001"]
+
+
+async def test_new_client_registration_requires_only_full_name(session):
+    user = await UserService(session).register(123456, "Райымов Элдар")
+    await session.commit()
+
+    assert user.client_code == "J-0001"
+    assert user.full_name == "Райымов Элдар"
+    assert user.phone == ""
+
+
 async def test_one_telegram_cannot_link_two_codes(session):
     session.add_all(
         [

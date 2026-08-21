@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.enums import ParcelStatus
 from app.db.models import Parcel, ParcelStatusHistory
 
 
@@ -19,6 +20,28 @@ class ParcelRepository:
             select(Parcel)
             .where(Parcel.client_code == client_code)
             .order_by(Parcel.status, Parcel.updated_at.desc())
+        )
+        return list(rows)
+
+    async def active_for_client(self, client_code: str) -> list[Parcel]:
+        rows = await self.session.scalars(
+            select(Parcel)
+            .where(
+                Parcel.client_code == client_code,
+                Parcel.status != ParcelStatus.DELIVERED,
+            )
+            .order_by(Parcel.status, Parcel.updated_at.desc())
+        )
+        return list(rows)
+
+    async def delivered_for_client(self, client_code: str) -> list[Parcel]:
+        rows = await self.session.scalars(
+            select(Parcel)
+            .where(
+                Parcel.client_code == client_code,
+                Parcel.status == ParcelStatus.DELIVERED,
+            )
+            .order_by(Parcel.delivered_at.desc(), Parcel.updated_at.desc())
         )
         return list(rows)
 

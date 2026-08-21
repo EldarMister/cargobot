@@ -1,5 +1,4 @@
 import logging
-from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -8,9 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.user import (
     cancel_keyboard,
-    city_keyboard,
     main_menu_keyboard,
-    phone_keyboard,
+    start_keyboard,
 )
 from app.bot.states.user import LinkStates, RegistrationStates
 from app.db.repositories import SettingRepository
@@ -22,48 +20,22 @@ logger = logging.getLogger(__name__)
 router = Router(name="registration")
 
 
-@router.message(F.text == "🆕 Новый клиент")
+@router.message(F.text.in_({"🆕 Регистрация нового клиента", "🆕 Новый клиент"}))
 async def new_client(message: Message, state: FSMContext) -> None:
     await state.set_state(RegistrationStates.full_name)
-    await message.answer("Введите ваше ФИО:", reply_markup=cancel_keyboard())
+    await message.answer("✍️ Введите ваше ФИО для регистрации:", reply_markup=cancel_keyboard())
 
 
 @router.message(RegistrationStates.full_name, F.text)
-async def registration_name(message: Message, state: FSMContext) -> None:
+async def registration_name(message: Message, state: FSMContext, session: AsyncSession) -> None:
     full_name = " ".join(message.text.split())
     if len(full_name) < 3:
         await message.answer("Пожалуйста, укажите полное имя.")
         return
-    await state.update_data(full_name=full_name)
-    await state.set_state(RegistrationStates.phone)
-    await message.answer("Поделитесь номером телефона кнопкой ниже:", reply_markup=phone_keyboard())
-
-
-@router.message(RegistrationStates.phone, F.contact)
-async def registration_phone(message: Message, state: FSMContext) -> None:
-    if message.contact.user_id not in (None, message.from_user.id):
-        await message.answer("Нужно отправить именно свой номер телефона.")
-        return
-    await state.update_data(phone=message.contact.phone_number)
-    await state.set_state(RegistrationStates.city)
-    await message.answer("Укажите город или нажмите «Пропустить»:", reply_markup=city_keyboard())
-
-
-@router.message(RegistrationStates.phone)
-async def registration_phone_invalid(message: Message) -> None:
-    await message.answer("Используйте кнопку «📱 Поделиться номером».", reply_markup=phone_keyboard())
-
-
-@router.message(RegistrationStates.city, F.text)
-async def registration_city(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    data = await state.get_data()
-    city = None if message.text.casefold() == "пропустить" else " ".join(message.text.split())
     try:
         user = await UserService(session).register(
             telegram_id=message.from_user.id,
-            full_name=data["full_name"],
-            phone=data["phone"],
-            city=city,
+            full_name=full_name,
         )
     except UserServiceError as exc:
         await state.clear()
@@ -72,9 +44,8 @@ async def registration_city(message: Message, state: FSMContext, session: AsyncS
     await state.clear()
     settings = await SettingRepository(session).all()
     await message.answer(
-        "✅ <b>Регистрация завершена</b>\n\n"
-        f"Ваш код клиента: <b>{user.client_code}</b>\n"
-        "Добавляйте этот код к данным получателя при каждой покупке.\n\n"
+        "🎉 <b>Регистрация завершена!</b>\n\n"
+        f"Ваш новый код клиента: <b>{user.client_code}</b>\n\n"
         f"{warehouse_text(settings, user.client_code)}",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -108,6 +79,13 @@ async def link_name(message: Message, state: FSMContext, session: AsyncSession) 
             full_name=message.text,
         )
     except UserServiceError as exc:
+        if str(exc).startswith("Этот код уже привязан"):
+            await state.clear()
+            await message.answer(
+                "❌ Этот старый код уже привязан к другому пользователю.",
+                reply_markup=start_keyboard(),
+            )
+            return
         attempts = int(data.get("attempts", 0)) + 1
         if attempts >= 5:
             await state.clear()
@@ -123,9 +101,7 @@ async def link_name(message: Message, state: FSMContext, session: AsyncSession) 
     settings = await SettingRepository(session).all()
     await message.answer(
         "✅ <b>Профиль успешно привязан!</b>\n\n"
-        f"ФИО: {escape(user.full_name)}\n"
-        f"Код клиента: <b>{user.client_code}</b>\n"
-        f"Телефон: {escape(user.phone)}\n\n"
+        f"Ваш код клиента: <b>{user.client_code}</b>\n\n"
         f"{warehouse_text(settings, user.client_code)}",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),

@@ -11,6 +11,9 @@ DEFAULT_SETTINGS = {
     "warehouse_address": "",
     "warehouse_name": "",
     "support_username": "",
+    "contact_whatsapp": "",
+    "local_warehouse_address": "",
+    "work_schedule": "",
 }
 
 

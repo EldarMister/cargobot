@@ -25,16 +25,16 @@ class UserService:
         self,
         telegram_id: int,
         full_name: str,
-        phone: str,
+        phone: str = "",
         city: str | None = None,
     ) -> User:
         if await self.users.by_telegram_id(telegram_id):
             raise UserServiceError("Этот Telegram-аккаунт уже зарегистрирован.")
         full_name = " ".join(full_name.split())
-        phone = normalize_phone(phone)
+        phone = normalize_phone(phone) if phone else ""
         if len(full_name) < 3:
             raise UserServiceError("Укажите полное имя.")
-        if len(phone) < 8:
+        if phone and len(phone) < 8:
             raise UserServiceError("Не удалось распознать номер телефона.")
 
         for _ in range(5):

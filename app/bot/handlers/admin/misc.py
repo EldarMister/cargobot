@@ -59,7 +59,10 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
         f"Телефон: {escape(values['warehouse_phone']) or '—'}\n"
         f"Адрес: {escape(values['warehouse_address']) or '—'}\n"
         f"Склад: {escape(values['warehouse_name']) or '—'}\n"
-        f"Поддержка: {escape(values['support_username']) or '—'}",
+        f"Telegram поддержки: {escape(values['support_username']) or '—'}\n"
+        f"WhatsApp: {escape(values['contact_whatsapp']) or '—'}\n"
+        f"Местный склад: {escape(values['local_warehouse_address']) or '—'}\n"
+        f"График работы: {escape(values['work_schedule']) or '—'}",
         parse_mode="HTML",
         reply_markup=settings_keyboard(),
     )
@@ -76,6 +79,9 @@ async def setting_start(callback: CallbackQuery, state: FSMContext) -> None:
         "warehouse_address",
         "warehouse_name",
         "support_username",
+        "contact_whatsapp",
+        "local_warehouse_address",
+        "work_schedule",
     }:
         await callback.answer("Неизвестная настройка", show_alert=True)
         return

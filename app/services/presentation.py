@@ -42,13 +42,18 @@ def format_parcel(parcel: Parcel) -> str:
     return "\n".join(lines)
 
 
-def format_parcel_list(parcels: list[Parcel]) -> str:
+def format_parcel_list(
+    parcels: list[Parcel],
+    *,
+    title: str = "📦 Мои товары",
+    empty_message: str = "У вас пока нет зарегистрированных товаров.",
+) -> str:
     if not parcels:
-        return "У вас пока нет зарегистрированных товаров."
+        return empty_message
     grouped = defaultdict(list)
     for parcel in parcels:
         grouped[parcel.status].append(parcel)
-    lines = ["📦 <b>Мои товары</b>"]
+    lines = [f"<b>{escape(title)}</b>"]
     for group_number, (status, items) in enumerate(grouped.items()):
         if group_number:
             lines.extend(["", "────────────"])

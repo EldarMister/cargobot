@@ -76,7 +76,7 @@ function showView(name) {
   $$(".view").forEach((view) => view.classList.toggle("active", view.dataset.view === name));
   $$("[data-nav]").forEach((button) => button.classList.toggle("active", button.dataset.nav === name));
   $("#page-title").textContent = pageTitles[name] || "Панель";
-  $("#floating-action").hidden = name === "auth" || name === "settings";
+  $("#floating-action").hidden = !["clients", "imports"].includes(name);
   closeDrawer();
   if (name !== "auth") loadView(name);
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -652,8 +652,7 @@ $("#settings-form").addEventListener("submit", async (event) => {
 });
 
 $("#floating-action").addEventListener("click", () => {
-  if (["dashboard", "imports"].includes(state.currentView)) openImportDialog();
-  else if (state.currentView === "parcels") $("#parcel-search").focus();
+  if (state.currentView === "imports") openImportDialog();
   else if (state.currentView === "clients") openClientForm();
 });
 

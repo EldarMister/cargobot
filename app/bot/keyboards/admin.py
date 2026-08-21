@@ -109,6 +109,9 @@ def settings_keyboard() -> InlineKeyboardMarkup:
         "warehouse_address": "Адрес склада",
         "warehouse_name": "Название склада",
         "support_username": "Контакт поддержки",
+        "contact_whatsapp": "WhatsApp",
+        "local_warehouse_address": "Адрес местного склада",
+        "work_schedule": "График работы",
     }
     return InlineKeyboardMarkup(
         inline_keyboard=[
