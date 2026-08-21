@@ -163,7 +163,12 @@ class ImportService:
                 )
             )
             dates_changed = bool(date_changes and date_changes.any)
-            if user and user.telegram_id and (is_new or status_changed or dates_changed):
+            if (
+                user
+                and user.telegram_id
+                and user.has_access()
+                and (is_new or status_changed or dates_changed)
+            ):
                 notifications.append(
                     ParcelNotification(
                         telegram_id=user.telegram_id,

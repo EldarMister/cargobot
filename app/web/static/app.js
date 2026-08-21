@@ -13,6 +13,8 @@ const state = {
   imports: [],
   settings: null,
   selectedParcel: null,
+  selectedClient: null,
+  selectedImport: null,
   reloadTimer: null,
 };
 
@@ -142,20 +144,19 @@ function renderClients() {
   $("#client-list").innerHTML = state.clients.length
     ? state.clients.map((client) => `
       <article class="table-row">
-        <div><strong>${escapeHtml(client.full_name)}</strong><small>${escapeHtml(client.phone)} · ${client.telegram_id ? "Telegram привязан" : "Telegram не привязан"}</small></div>
+        <div><strong>${escapeHtml(client.full_name)}</strong><small>${escapeHtml(client.phone)} · ${client.telegram_id ? "Telegram привязан" : "Telegram не привязан"}</small>${client.is_blocked ? `<span class="block-badge">${client.block_mode === "permanent" ? "Заблокирован" : `До ${escapeHtml(client.blocked_until_text || "указанного срока")}`}</span>` : ""}</div>
         <div><span class="table-cell-code">${escapeHtml(client.client_code)}</span></div>
-        <div><b>${client.parcels}</b><small>товаров</small></div>
+        <div><b>${client.parcels}</b><small>товаров</small><button class="manage-action" data-manage-client="${client.id}">Открыть</button></div>
       </article>`).join("")
     : empty("Клиенты не найдены");
 }
 
 function importRow(item) {
-  const canArrive = item.status === "IN_TRANSIT";
   return `
     <article class="table-row">
       <div><strong>${escapeHtml(item.filename)}</strong><small>Партия №${item.id} · ${escapeHtml(item.status_label)}</small></div>
       <div>${item.sent_at ? `<span>${escapeHtml(item.sent_at)}</span>` : "—"}<small>${item.expected_at ? `Ожидается ${escapeHtml(item.expected_at)}` : "Без расчётной даты"}</small></div>
-      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small>${canArrive ? `<button class="row-action" data-arrive-import="${item.id}">Партия прибыла</button>` : ""}</div>
+      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div>
     </article>`;
 }
 
@@ -163,6 +164,66 @@ function renderImports() {
   $("#import-list").innerHTML = state.imports.length
     ? state.imports.map(importRow).join("")
     : empty("Импортов пока нет");
+}
+
+function closeDialog(id) {
+  const dialog = $(`#${id}`);
+  if (dialog?.open) dialog.close();
+}
+
+function clientBlockText(client) {
+  if (!client.is_blocked) return "Активен";
+  if (client.block_mode === "permanent") return "Заблокирован навсегда";
+  return `Заблокирован до ${client.blocked_until_text || "указанного срока"}`;
+}
+
+function openClientDetail(clientId) {
+  state.selectedClient = state.clients.find((client) => client.id === Number(clientId));
+  if (!state.selectedClient) return;
+  const client = state.selectedClient;
+  $("#client-detail-name").textContent = client.full_name;
+  $("#client-detail").innerHTML = `
+    <div><span>J-код</span><b>${escapeHtml(client.client_code)}</b></div>
+    <div><span>Телефон</span><b>${escapeHtml(client.phone)}</b></div>
+    <div><span>Город</span><b>${escapeHtml(client.city || "Не указан")}</b></div>
+    <div><span>Telegram ID</span><b>${escapeHtml(client.telegram_id || "Не привязан")}</b></div>
+    <div><span>Товары</span><b>${client.parcels}</b></div>
+    <div><span>Доступ</span><b>${escapeHtml(clientBlockText(client))}</b></div>`;
+  $("#client-block-action").textContent = client.is_blocked ? "Изменить блокировку" : "Заблокировать";
+  $("#client-detail-sheet").showModal();
+}
+
+function openClientForm(client = null) {
+  state.selectedClient = client;
+  $("#client-form").reset();
+  $("#client-form-id").value = client?.id || "";
+  $("#client-form-title").textContent = client ? "Редактировать клиента" : "Добавить клиента";
+  $("#client-code-field").hidden = Boolean(client);
+  $("#client-form-code").value = client?.client_code || "";
+  $("#client-form-name").value = client?.full_name || "";
+  $("#client-form-phone").value = client?.phone || "";
+  $("#client-form-city").value = client?.city || "";
+  $("#client-form-telegram").value = client?.telegram_id || "";
+  $("#client-form-sheet").showModal();
+}
+
+function openBatchStatus(importId) {
+  state.selectedImport = state.imports.find((item) => item.id === Number(importId));
+  if (!state.selectedImport) return;
+  $("#batch-status-title").textContent = `Партия №${state.selectedImport.id}`;
+  $("#batch-status-file").textContent = state.selectedImport.filename;
+  $("#batch-status-select").value = state.selectedImport.status;
+  $("#batch-sent-date").value = "";
+  $("#batch-transit-days").value = state.defaultTransitDays;
+  $("#batch-transit-fields").hidden = state.selectedImport.status !== "IN_TRANSIT";
+  $("#batch-status-sheet").showModal();
+}
+
+function renderClientParcels(client, parcels) {
+  $("#client-parcels-title").textContent = `${client.full_name} · ${client.client_code}`;
+  $("#client-parcels-list").innerHTML = parcels.length
+    ? parcels.map((parcel) => parcelRow(parcel, false)).join("")
+    : empty("У клиента пока нет товаров");
 }
 
 function renderSettings(values) {
@@ -180,9 +241,11 @@ function buildStatusControls() {
   const options = state.statuses.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join("");
   $("#status-select").innerHTML = options;
   $("#import-status").innerHTML = options;
+  $("#batch-status-select").innerHTML = options;
   $("#parcel-status-filter").innerHTML = `<option value="">Все статусы</option>${options}`;
   $("#import-status").value = "IN_TRANSIT";
   $("#transit-days").value = state.defaultTransitDays;
+  $("#batch-transit-days").value = state.defaultTransitDays;
   $("#picker-status-value").textContent = "Все статусы";
 }
 
@@ -339,6 +402,9 @@ async function authenticate() {
 }
 
 document.addEventListener("click", async (event) => {
+  const closeButton = event.target.closest("[data-close-dialog]");
+  if (closeButton) closeDialog(closeButton.dataset.closeDialog);
+
   const pickerTrigger = event.target.closest("[data-open-picker]");
   if (pickerTrigger) openPicker(pickerTrigger.dataset.openPicker);
 
@@ -355,6 +421,12 @@ document.addEventListener("click", async (event) => {
     $("#status-select").value = state.selectedParcel.status;
     $("#status-sheet").showModal();
   }
+
+  const clientButton = event.target.closest("[data-manage-client]");
+  if (clientButton) openClientDetail(clientButton.dataset.manageClient);
+
+  const importButton = event.target.closest("[data-edit-import]");
+  if (importButton) openBatchStatus(importButton.dataset.editImport);
 
   const arrived = event.target.closest("[data-arrive-import]");
   if (arrived && confirm("Машина действительно прибыла? Клиенты получат уведомления.")) {
@@ -381,19 +453,151 @@ $("#parcel-sort").addEventListener("change", renderParcels);
 
 $("#save-status").addEventListener("click", async () => {
   if (!state.selectedParcel) return;
+  const selectedParcel = state.selectedParcel;
+  const newStatus = $("#status-select").value;
+  $("#status-sheet").close();
   if (state.demo) {
-    $("#status-sheet").close();
+    const status = state.statuses.find((item) => item.value === newStatus);
+    selectedParcel.status = newStatus;
+    selectedParcel.status_label = status?.label || newStatus;
+    renderParcels();
     return toast("Демо: статус обновлён");
   }
   try {
-    const result = await api(`/api/parcels/${state.selectedParcel.id}/status`, {
+    const result = await api(`/api/parcels/${selectedParcel.id}/status`, {
       method: "PATCH",
-      body: JSON.stringify({ status: $("#status-select").value }),
+      body: JSON.stringify({ status: newStatus }),
     });
-    $("#status-sheet").close();
     toast(result.notified ? "Статус обновлён, клиент уведомлён" : "Статус обновлён");
     await Promise.all([loadParcels(), loadDashboard()]);
   } catch (error) { toast(error.message, true); }
+});
+
+$("#batch-status-select").addEventListener("change", (event) => {
+  $("#batch-transit-fields").hidden = event.target.value !== "IN_TRANSIT";
+});
+$("#batch-status-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.selectedImport) return;
+  const importRecord = state.selectedImport;
+  const statusValue = $("#batch-status-select").value;
+  const payload = {
+    status: statusValue,
+    sent_date: $("#batch-sent-date").value || null,
+    transit_days: Number($("#batch-transit-days").value || state.defaultTransitDays),
+  };
+  closeDialog("batch-status-sheet");
+  if (state.demo) {
+    const status = state.statuses.find((item) => item.value === statusValue);
+    importRecord.status = statusValue;
+    importRecord.status_label = status?.label || statusValue;
+    renderImports();
+    return toast("Демо: статус всей партии обновлён");
+  }
+  try {
+    const result = await api(`/api/imports/${importRecord.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    toast(`Обновлено товаров: ${result.updated}. Уведомлений: ${result.notifications}`);
+    await Promise.all([loadImports(), loadParcels(), loadDashboard()]);
+  } catch (error) { toast(error.message, true); }
+});
+
+$("#open-client-create").addEventListener("click", () => openClientForm());
+$("#client-edit-action").addEventListener("click", () => {
+  const client = state.selectedClient;
+  closeDialog("client-detail-sheet");
+  openClientForm(client);
+});
+$("#client-parcels-action").addEventListener("click", async () => {
+  const client = state.selectedClient;
+  if (!client) return;
+  closeDialog("client-detail-sheet");
+  try {
+    const parcels = state.demo
+      ? demo.parcels.filter((parcel) => parcel.client_code === client.client_code)
+      : await api(`/api/clients/${client.id}/parcels`);
+    renderClientParcels(client, parcels);
+    $("#client-parcels-sheet").showModal();
+  } catch (error) { toast(error.message, true); }
+});
+$("#client-block-action").addEventListener("click", () => {
+  if (!state.selectedClient) return;
+  closeDialog("client-detail-sheet");
+  $("#client-block-title").textContent = state.selectedClient.full_name;
+  $("#client-block-mode").value = state.selectedClient.is_blocked ? "unblock" : "temporary";
+  $("#client-block-days-field").hidden = $("#client-block-mode").value !== "temporary";
+  $("#client-block-sheet").showModal();
+});
+$("#client-block-mode").addEventListener("change", (event) => {
+  $("#client-block-days-field").hidden = event.target.value !== "temporary";
+});
+$("#client-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const clientId = Number($("#client-form-id").value) || null;
+  const telegramId = $("#client-form-telegram").value.trim();
+  const payload = {
+    full_name: $("#client-form-name").value.trim(),
+    phone: $("#client-form-phone").value.trim(),
+    city: $("#client-form-city").value.trim() || null,
+    telegram_id: telegramId ? Number(telegramId) : null,
+  };
+  if (!clientId) payload.client_code = $("#client-form-code").value.trim() || null;
+  const button = event.target.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    if (state.demo) {
+      if (clientId) Object.assign(state.selectedClient, payload);
+      else state.clients.unshift({
+        ...payload,
+        id: Date.now(),
+        client_code: payload.client_code || `J-${String(state.clients.length + 1).padStart(4, "0")}`,
+        parcels: 0,
+        is_active: true,
+        is_blocked: false,
+        block_mode: null,
+        blocked_until_text: null,
+      });
+    } else {
+      await api(clientId ? `/api/clients/${clientId}` : "/api/clients", {
+        method: clientId ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      await loadClients();
+    }
+    closeDialog("client-form-sheet");
+    renderClients();
+    toast(clientId ? "Данные клиента обновлены" : "Клиент добавлен");
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+$("#client-block-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.selectedClient) return;
+  const client = state.selectedClient;
+  const mode = $("#client-block-mode").value;
+  const payload = { mode, days: Number($("#client-block-days").value) };
+  const button = event.target.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    if (state.demo) {
+      client.is_blocked = mode !== "unblock";
+      client.is_active = mode !== "permanent";
+      client.block_mode = mode === "unblock" ? null : mode;
+      client.blocked_until_text = mode === "temporary" ? `через ${payload.days} дн.` : null;
+    } else {
+      const updated = await api(`/api/clients/${client.id}/block`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      Object.assign(client, updated);
+    }
+    closeDialog("client-block-sheet");
+    renderClients();
+    toast(mode === "unblock" ? "Клиент разблокирован" : "Ограничение применено");
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
 });
 
 function openImportDialog() { $("#import-sheet").showModal(); }
@@ -450,7 +654,7 @@ $("#settings-form").addEventListener("submit", async (event) => {
 $("#floating-action").addEventListener("click", () => {
   if (["dashboard", "imports"].includes(state.currentView)) openImportDialog();
   else if (state.currentView === "parcels") $("#parcel-search").focus();
-  else if (state.currentView === "clients") $("#client-search").focus();
+  else if (state.currentView === "clients") openClientForm();
 });
 
 let parcelTimer;
@@ -473,8 +677,10 @@ const demo = {
     { value: "PREPARING", label: "📦 Готовится к отправке" },
     { value: "IN_TRANSIT", label: "🚚 В пути" },
     { value: "ARRIVED_COUNTRY", label: "🏢 Прибыл" },
+    { value: "LOCAL_WAREHOUSE", label: "🏢 На местном складе" },
     { value: "READY_FOR_PICKUP", label: "✅ Готов к выдаче" },
     { value: "DELIVERED", label: "📬 Получен" },
+    { value: "CANCELLED", label: "❌ Отменён" },
   ],
   dashboard: {
     total_clients: 86,
@@ -491,9 +697,9 @@ const demo = {
     { id: 4, tracking_number: "SF604118237991", client_code: "J-1190", client_name: "Нурбек Алиев", status: "PREPARING", status_label: "📦 Готовится к отправке", sent_at: null, expected_at: null },
   ],
   clients: [
-    { id: 1, client_code: "J-8226", full_name: "Султанов Азим", phone: "+996 555 123 456", telegram_id: 1, parcels: 7 },
-    { id: 2, client_code: "J-0329", full_name: "Айжан Иманова", phone: "+996 700 987 654", telegram_id: 2, parcels: 3 },
-    { id: 3, client_code: "J-4040", full_name: "Эльдар Каримов", phone: "+996 777 400 400", telegram_id: null, parcels: 5 },
+    { id: 1, client_code: "J-8226", full_name: "Султанов Азим", phone: "+996 555 123 456", city: "Бишкек", telegram_id: 1, parcels: 7, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
+    { id: 2, client_code: "J-0329", full_name: "Айжан Иманова", phone: "+996 700 987 654", city: "Ош", telegram_id: 2, parcels: 3, is_active: true, is_blocked: true, block_mode: "temporary", blocked_until_text: "24.08.2026 12:00" },
+    { id: 3, client_code: "J-4040", full_name: "Эльдар Каримов", phone: "+996 777 400 400", city: null, telegram_id: null, parcels: 5, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
   ],
   imports: [
     { id: 18, filename: "cargo-20-08.xlsx", status: "IN_TRANSIT", status_label: "🚚 В пути", sent_at: "20.08.2026", expected_at: "01.09.2026", created_rows: 48, updated_rows: 7 },

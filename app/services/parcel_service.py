@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.enums import ParcelStatus
-from app.db.models import Parcel
+from app.db.models import Import, Parcel
 from app.db.repositories import ParcelRepository
 
 STATUS_DATE_FIELD = {
@@ -103,4 +103,39 @@ class ParcelService:
         for parcel in parcels:
             if await self.change_status(parcel, ParcelStatus.ARRIVED_COUNTRY, changed_by):
                 changed.append(parcel)
+        if changed:
+            import_record = await self.session.get(Import, import_id)
+            if import_record:
+                import_record.selected_status = ParcelStatus.ARRIVED_COUNTRY
+                await self.session.flush()
         return changed
+
+    async def change_import_status(
+        self,
+        import_id: int,
+        new_status: ParcelStatus,
+        changed_by: int | None,
+        sent_at: datetime | None = None,
+        expected_at: datetime | None = None,
+    ) -> tuple[Import | None, list[Parcel]]:
+        import_record = await self.session.get(Import, import_id)
+        if not import_record:
+            return None, []
+        parcels = list(
+            await self.session.scalars(
+                select(Parcel).options(selectinload(Parcel.user)).where(Parcel.import_id == import_id)
+            )
+        )
+        changed = []
+        for parcel in parcels:
+            if new_status == ParcelStatus.IN_TRANSIT:
+                apply_delivery_dates(parcel, sent_at=sent_at, expected_at=expected_at)
+            if await self.change_status(parcel, new_status, changed_by):
+                changed.append(parcel)
+        import_record.selected_status = new_status
+        if sent_at is not None:
+            import_record.sent_at = sent_at
+        if expected_at is not None:
+            import_record.expected_at = expected_at
+        await self.session.flush()
+        return import_record, changed

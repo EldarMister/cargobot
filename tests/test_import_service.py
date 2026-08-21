@@ -220,3 +220,42 @@ async def test_admin_marks_whole_import_batch_arrived(session):
     assert len(changed) == 2
     assert all(parcel.status == ParcelStatus.ARRIVED_COUNTRY for parcel in changed)
     assert all(parcel.arrived_at is not None for parcel in changed)
+
+
+async def test_admin_changes_status_for_whole_import_batch(session):
+    batch = Import(
+        filename="truck.xlsx",
+        selected_status=ParcelStatus.CHINA_WAREHOUSE,
+        uploaded_by=100,
+    )
+    session.add(batch)
+    await session.flush()
+    session.add_all(
+        [
+            Parcel(
+                tracking_number="GROUP000001",
+                client_code="J-0001",
+                import_id=batch.id,
+                status=ParcelStatus.CHINA_WAREHOUSE,
+            ),
+            Parcel(
+                tracking_number="GROUP000002",
+                client_code="J-0002",
+                import_id=batch.id,
+                status=ParcelStatus.PREPARING,
+            ),
+        ]
+    )
+    await session.commit()
+
+    record, changed = await ParcelService(session).change_import_status(
+        batch.id,
+        ParcelStatus.READY_FOR_PICKUP,
+        changed_by=100,
+    )
+    await session.commit()
+
+    assert record is not None
+    assert record.selected_status == ParcelStatus.READY_FOR_PICKUP
+    assert len(changed) == 2
+    assert all(parcel.status == ParcelStatus.READY_FOR_PICKUP for parcel in changed)

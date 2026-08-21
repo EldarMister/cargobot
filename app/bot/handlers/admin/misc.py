@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -7,7 +7,7 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.admin import admin_menu_keyboard, settings_keyboard
@@ -121,7 +121,11 @@ async def broadcast_preview(message: Message, state: FSMContext, session: AsyncS
         return
     recipients = int(
         await session.scalar(
-            select(func.count(User.id)).where(User.telegram_id.is_not(None), User.is_active.is_(True))
+            select(func.count(User.id)).where(
+                User.telegram_id.is_not(None),
+                User.is_active.is_(True),
+                or_(User.blocked_until.is_(None), User.blocked_until <= datetime.now(UTC)),
+            )
         )
         or 0
     )
@@ -153,7 +157,11 @@ async def broadcast_send(callback: CallbackQuery, state: FSMContext, session: As
     data = await state.get_data()
     telegram_ids = list(
         await session.scalars(
-            select(User.telegram_id).where(User.telegram_id.is_not(None), User.is_active.is_(True))
+            select(User.telegram_id).where(
+                User.telegram_id.is_not(None),
+                User.is_active.is_(True),
+                or_(User.blocked_until.is_(None), User.blocked_until <= datetime.now(UTC)),
+            )
         )
     )
     sent = 0

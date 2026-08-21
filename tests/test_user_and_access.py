@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.core.enums import ParcelStatus
@@ -65,3 +67,16 @@ async def test_one_telegram_cannot_link_two_codes(session):
 
     with pytest.raises(UserServiceError, match="другой код"):
         await UserService(session).link_existing(10, "J-0002", "Петр Петров")
+
+
+def test_client_access_supports_temporary_and_permanent_blocks():
+    now = datetime.now(UTC)
+    user = User(client_code="J-0001", full_name="Иван Иванов", phone="+996111111111")
+
+    assert user.has_access(now)
+    user.blocked_until = now + timedelta(days=3)
+    assert not user.has_access(now)
+    assert user.has_access(now + timedelta(days=4))
+    user.blocked_until = None
+    user.is_active = False
+    assert not user.has_access(now)

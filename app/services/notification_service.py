@@ -62,7 +62,7 @@ async def notify_parcel_status(
     sent_at_changed: bool = False,
     expected_at_changed: bool = False,
 ) -> bool:
-    if not parcel.user or not parcel.user.telegram_id:
+    if not parcel.user or not parcel.user.telegram_id or not parcel.user.has_access():
         return False
     return await send_notification(
         bot,

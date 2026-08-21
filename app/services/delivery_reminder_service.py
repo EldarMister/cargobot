@@ -79,7 +79,7 @@ async def send_delivery_reminders(session: AsyncSession, bot: Bot) -> int:
     sent = 0
     now = datetime.now(UTC)
     for parcel in parcels:
-        if not parcel.user or not parcel.user.telegram_id:
+        if not parcel.user or not parcel.user.telegram_id or not parcel.user.has_access():
             continue
         reminder = reminder_for(parcel)
         if not reminder:

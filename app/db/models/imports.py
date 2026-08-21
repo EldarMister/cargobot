@@ -24,6 +24,9 @@ class Import(Base):
     updated_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     rows: Mapped[list[ImportRow]] = relationship(back_populates="import_record", cascade="all, delete-orphan")
 

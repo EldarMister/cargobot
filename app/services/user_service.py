@@ -64,7 +64,7 @@ class UserService:
 
         user = await self.users.by_client_code(normalize_client_code(client_code))
         generic_error = "Код или данные владельца не совпадают."
-        if not user or not user.is_active:
+        if not user or not user.has_access():
             raise UserServiceError(generic_error)
         if user.telegram_id is not None and user.telegram_id != telegram_id:
             raise UserServiceError("Этот код уже привязан. Обратитесь к администратору.")

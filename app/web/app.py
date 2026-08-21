@@ -1,9 +1,9 @@
 import asyncio
 import json
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from aiogram import Bot
 from fastapi import (
@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
@@ -29,9 +30,14 @@ from app.core.config import Settings
 from app.core.dates import as_local, calculate_expected_at, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import AppSetting, Import, Parcel, User
-from app.db.repositories import SettingRepository
+from app.db.repositories import SettingRepository, UserRepository
 from app.services.excel_importer import ExcelImporter
 from app.services.import_service import ImportService
+from app.services.normalization import (
+    is_valid_client_code,
+    normalize_client_code,
+    normalize_phone,
+)
 from app.services.notification_service import notify_parcel_status, send_notification
 from app.services.parcel_service import ParcelService
 from app.web.auth import (
@@ -52,6 +58,28 @@ class TelegramAuthRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     status: ParcelStatus
+
+
+class ImportStatusUpdateRequest(BaseModel):
+    status: ParcelStatus
+    sent_date: str | None = None
+    transit_days: int = Field(default=12, ge=1, le=90)
+
+
+class ClientWriteRequest(BaseModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    phone: str = Field(min_length=8, max_length=32)
+    city: str | None = Field(default=None, max_length=120)
+    telegram_id: int | None = None
+
+
+class ClientCreateRequest(ClientWriteRequest):
+    client_code: str | None = Field(default=None, max_length=32)
+
+
+class ClientBlockRequest(BaseModel):
+    mode: Literal["permanent", "temporary", "unblock"]
+    days: int = Field(default=1, ge=1, le=365)
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -80,6 +108,29 @@ def _parcel_payload(parcel: Parcel) -> dict:
         "sent_at": _date(parcel.sent_at),
         "expected_at": _date(parcel.expected_at),
         "updated_at": as_local(parcel.updated_at).isoformat(),
+    }
+
+
+def _client_payload(user: User, parcel_count: int) -> dict:
+    blocked_until = user.blocked_until
+    blocked_temporarily = bool(blocked_until and not user.has_access())
+    return {
+        "id": user.id,
+        "client_code": user.client_code,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "city": user.city,
+        "telegram_id": user.telegram_id,
+        "parcels": int(parcel_count),
+        "is_active": user.is_active,
+        "is_blocked": not user.has_access(),
+        "block_mode": (
+            "permanent" if user.is_active is False else "temporary" if blocked_temporarily else None
+        ),
+        "blocked_until": as_local(blocked_until).isoformat() if blocked_temporarily else None,
+        "blocked_until_text": (
+            as_local(blocked_until).strftime("%d.%m.%Y %H:%M") if blocked_temporarily else None
+        ),
     }
 
 
@@ -304,18 +355,134 @@ def create_web_app(
                     )
                 )
             rows = (await session.execute(statement)).all()
-            return [
-                {
-                    "id": user.id,
-                    "client_code": user.client_code,
-                    "full_name": user.full_name,
-                    "phone": user.phone,
-                    "city": user.city,
-                    "telegram_id": user.telegram_id,
-                    "parcels": int(parcel_count),
-                }
-                for user, parcel_count in rows
-            ]
+            return [_client_payload(user, parcel_count) for user, parcel_count in rows]
+
+    @app.post("/api/clients")
+    async def create_client(
+        payload: ClientCreateRequest,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        full_name = " ".join(payload.full_name.split())
+        phone = normalize_phone(payload.phone)
+        if len(full_name) < 3 or len(phone) < 8:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Проверьте ФИО и телефон")
+        async with session_factory() as session:
+            repository = UserRepository(session)
+            if payload.client_code:
+                if not is_valid_client_code(payload.client_code):
+                    raise HTTPException(
+                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        "J-код должен быть в формате J-0001",
+                    )
+                client_code = normalize_client_code(payload.client_code)
+            else:
+                client_code = f"J-{await repository.next_client_number():04d}"
+            user = User(
+                client_code=client_code,
+                full_name=full_name,
+                phone=phone,
+                city=" ".join(payload.city.split()) if payload.city else None,
+                telegram_id=payload.telegram_id,
+            )
+            session.add(user)
+            try:
+                await session.flush()
+                await repository.attach_parcels(user)
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "J-код или Telegram ID уже используется",
+                ) from exc
+            parcel_count = int(
+                await session.scalar(
+                    select(func.count(Parcel.id)).where(Parcel.client_code == user.client_code)
+                )
+                or 0
+            )
+            return _client_payload(user, parcel_count)
+
+    @app.patch("/api/clients/{client_id}")
+    async def update_client(
+        client_id: int,
+        payload: ClientWriteRequest,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        full_name = " ".join(payload.full_name.split())
+        phone = normalize_phone(payload.phone)
+        if len(full_name) < 3 or len(phone) < 8:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Проверьте ФИО и телефон")
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            user.full_name = full_name
+            user.phone = phone
+            user.city = " ".join(payload.city.split()) if payload.city else None
+            user.telegram_id = payload.telegram_id
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Этот Telegram ID уже привязан к другому клиенту",
+                ) from exc
+            parcel_count = int(
+                await session.scalar(
+                    select(func.count(Parcel.id)).where(Parcel.client_code == user.client_code)
+                )
+                or 0
+            )
+            return _client_payload(user, parcel_count)
+
+    @app.post("/api/clients/{client_id}/block")
+    async def block_client(
+        client_id: int,
+        payload: ClientBlockRequest,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            if payload.mode == "permanent":
+                user.is_active = False
+                user.blocked_until = None
+            elif payload.mode == "temporary":
+                user.is_active = True
+                user.blocked_until = datetime.now(UTC) + timedelta(days=payload.days)
+            else:
+                user.is_active = True
+                user.blocked_until = None
+            await session.commit()
+            parcel_count = int(
+                await session.scalar(
+                    select(func.count(Parcel.id)).where(Parcel.client_code == user.client_code)
+                )
+                or 0
+            )
+            return _client_payload(user, parcel_count)
+
+    @app.get("/api/clients/{client_id}/parcels")
+    async def client_parcels(
+        client_id: int,
+        _: int = Depends(require_admin),
+    ) -> list[dict]:
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            rows = list(
+                await session.scalars(
+                    select(Parcel)
+                    .options(selectinload(Parcel.user))
+                    .where(Parcel.client_code == user.client_code)
+                    .order_by(Parcel.updated_at.desc())
+                )
+            )
+            return [_parcel_payload(parcel) for parcel in rows]
 
     @app.get("/api/imports")
     async def imports(_: int = Depends(require_admin)) -> list[dict]:
@@ -410,13 +577,53 @@ def create_web_app(
                 notified += int(await notify_parcel_status(bot, parcel, status_changed=True))
             return {"updated": len(changed), "notifications": notified}
 
+    @app.patch("/api/imports/{import_id}/status")
+    async def update_import_status(
+        import_id: int,
+        payload: ImportStatusUpdateRequest,
+        admin_id: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            import_record = await session.get(Import, import_id)
+            if not import_record:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+            sent_at = None
+            expected_at = None
+            if payload.status == ParcelStatus.IN_TRANSIT:
+                sent_at = _parse_web_date(payload.sent_date) or import_record.sent_at
+                if not sent_at:
+                    sent_at = (
+                        datetime.now(local_timezone())
+                        .replace(hour=0, minute=0, second=0, microsecond=0)
+                        .astimezone(UTC)
+                    )
+                expected_at = calculate_expected_at(sent_at, payload.transit_days)
+            record, changed = await ParcelService(session).change_import_status(
+                import_id,
+                payload.status,
+                admin_id,
+                sent_at=sent_at,
+                expected_at=expected_at,
+            )
+            await session.commit()
+            notified = 0
+            for parcel in changed:
+                notified += int(await notify_parcel_status(bot, parcel, status_changed=True))
+            return {
+                "id": record.id,
+                "status": record.selected_status.value,
+                "status_label": record.selected_status.label,
+                "updated": len(changed),
+                "notifications": notified,
+            }
+
     async def database_version() -> str:
         async with session_factory() as session:
             values = await session.execute(
                 select(
                     select(func.max(Parcel.updated_at)).scalar_subquery(),
                     select(func.max(User.updated_at)).scalar_subquery(),
-                    select(func.max(Import.created_at)).scalar_subquery(),
+                    select(func.max(Import.updated_at)).scalar_subquery(),
                 )
             )
             settings_rows = await session.execute(

@@ -17,8 +17,11 @@ router = Router(name="user_parcels")
 
 async def _current_user(message: Message, session: AsyncSession):
     user = await UserRepository(session).by_telegram_id(message.from_user.id)
-    if not user or not user.is_active:
+    if not user:
         await message.answer("Сначала зарегистрируйтесь через /start.")
+        return None
+    if not user.has_access():
+        await message.answer("⛔ Доступ к боту временно ограничен. Обратитесь к поддержке.")
         return None
     return user
 

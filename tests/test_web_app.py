@@ -18,4 +18,7 @@ def test_web_panel_registers_public_shell_and_protected_api():
         "/api/auth/telegram",
         "/api/dashboard",
         "/api/settings",
+        "/api/clients/{client_id}/block",
+        "/api/clients/{client_id}/parcels",
+        "/api/imports/{import_id}/status",
     } <= paths
