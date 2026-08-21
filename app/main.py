@@ -1,7 +1,8 @@
 import asyncio
 import logging
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 
+import uvicorn
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -13,8 +14,16 @@ from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import create_engine_and_sessionmaker
 from app.services.delivery_reminder_service import delivery_reminder_loop
+from app.web.app import create_web_app
 
 logger = logging.getLogger(__name__)
+
+
+class EmbeddedUvicornServer(uvicorn.Server):
+    @contextmanager
+    def capture_signals(self):
+        """Let aiogram own process signals while Uvicorn runs in the same event loop."""
+        yield
 
 
 async def main() -> None:
@@ -29,6 +38,16 @@ async def main() -> None:
     dispatcher = Dispatcher(storage=storage)
     dispatcher.update.outer_middleware(DatabaseMiddleware(session_factory))
     register_routers(dispatcher, settings)
+    web_server = EmbeddedUvicornServer(
+        uvicorn.Config(
+            create_web_app(bot, session_factory, settings),
+            host="0.0.0.0",
+            port=settings.port,
+            log_config=None,
+            access_log=False,
+        )
+    )
+    web_task = asyncio.create_task(web_server.serve(), name="web-panel")
     reminder_task = asyncio.create_task(
         delivery_reminder_loop(bot, session_factory),
         name="delivery-reminders",
@@ -39,9 +58,11 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=False)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        web_server.should_exit = True
         reminder_task.cancel()
         with suppress(asyncio.CancelledError):
             await reminder_task
+        await web_task
         await storage.close()
         await bot.session.close()
         await engine.dispose()

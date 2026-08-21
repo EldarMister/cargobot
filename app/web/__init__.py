@@ -1,0 +1,1 @@
+"""Mobile web administration panel."""

@@ -3,10 +3,11 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 
 from app.core.enums import ParcelStatus
-from app.db.models import Parcel, ParcelStatusHistory, User
+from app.db.models import Import, Parcel, ParcelStatusHistory, User
 from app.services.excel_importer import ExcelParseResult, ParsedExcelRow
 from app.services.import_service import ImportService
 from app.services.notification_service import notification_text
+from app.services.parcel_service import ParcelService
 
 
 def parsed(tracking="YT7592444294461", code="J-0329"):
@@ -185,3 +186,37 @@ async def test_changed_status_creates_history_and_notification(session):
     assert event.status_changed is True
     assert "Ваш товар прибыл" in notification_text(event)
     assert await session.scalar(select(func.count(ParcelStatusHistory.id))) == 2
+
+
+async def test_admin_marks_whole_import_batch_arrived(session):
+    batch = Import(
+        filename="truck.xlsx",
+        selected_status=ParcelStatus.IN_TRANSIT,
+        uploaded_by=100,
+    )
+    session.add(batch)
+    await session.flush()
+    session.add_all(
+        [
+            Parcel(
+                tracking_number="BATCH000001",
+                client_code="J-0001",
+                import_id=batch.id,
+                status=ParcelStatus.IN_TRANSIT,
+            ),
+            Parcel(
+                tracking_number="BATCH000002",
+                client_code="J-0002",
+                import_id=batch.id,
+                status=ParcelStatus.IN_TRANSIT,
+            ),
+        ]
+    )
+    await session.commit()
+
+    changed = await ParcelService(session).mark_import_arrived(batch.id, changed_by=100)
+    await session.commit()
+
+    assert len(changed) == 2
+    assert all(parcel.status == ParcelStatus.ARRIVED_COUNTRY for parcel in changed)
+    assert all(parcel.arrived_at is not None for parcel in changed)

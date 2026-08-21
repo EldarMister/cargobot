@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel
@@ -81,3 +83,24 @@ class ParcelService:
         await self.parcels.add_history(parcel, old_status, new_status, changed_by)
         await self.session.flush()
         return True
+
+    async def mark_import_arrived(
+        self,
+        import_id: int,
+        changed_by: int | None,
+    ) -> list[Parcel]:
+        parcels = list(
+            await self.session.scalars(
+                select(Parcel)
+                .options(selectinload(Parcel.user))
+                .where(
+                    Parcel.import_id == import_id,
+                    Parcel.status == ParcelStatus.IN_TRANSIT,
+                )
+            )
+        )
+        changed = []
+        for parcel in parcels:
+            if await self.change_status(parcel, ParcelStatus.ARRIVED_COUNTRY, changed_by):
+                changed.append(parcel)
+        return changed

@@ -336,28 +336,10 @@ async def import_arrived_cancel(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("import_arrived_confirm:"))
 async def import_arrived_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
     import_id = int(callback.data.split(":", 1)[1])
-    parcels = list(
-        await session.scalars(
-            select(Parcel)
-            .options(selectinload(Parcel.user))
-            .where(
-                Parcel.import_id == import_id,
-                Parcel.status == ParcelStatus.IN_TRANSIT,
-            )
-        )
-    )
-    if not parcels:
+    changed = await ParcelService(session).mark_import_arrived(import_id, callback.from_user.id)
+    if not changed:
         await callback.answer("Партия уже обновлена.", show_alert=True)
         return
-    service = ParcelService(session)
-    changed = []
-    for parcel in parcels:
-        if await service.change_status(
-            parcel,
-            ParcelStatus.ARRIVED_COUNTRY,
-            callback.from_user.id,
-        ):
-            changed.append(parcel)
     await session.commit()
     notified = 0
     for parcel in changed:
