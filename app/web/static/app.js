@@ -306,8 +306,17 @@ function pickerItems(name) {
   ];
 }
 
+function setPickerExpanded(name = null) {
+  $$('[data-open-picker]').forEach((button) => {
+    const expanded = button.dataset.openPicker === name;
+    button.classList.toggle("expanded", expanded);
+    button.setAttribute("aria-expanded", String(expanded));
+  });
+}
+
 function openPicker(name) {
   state.activePicker = name;
+  setPickerExpanded(name);
   const select = name === "status" ? $("#parcel-status-filter") : $("#parcel-sort");
   $("#picker-title").textContent = name === "status" ? "Выберите статус" : "Сортировать товары";
   $("#picker-options").innerHTML = pickerItems(name).map((item) => `
@@ -401,14 +410,6 @@ function connectEvents() {
       if (state.currentView === "settings") await loadSettings();
     }, 250);
   });
-  events.onopen = () => {
-    $("#live-pill").classList.remove("offline");
-    $("#live-pill b").textContent = "Онлайн";
-  };
-  events.onerror = () => {
-    $("#live-pill").classList.add("offline");
-    $("#live-pill b").textContent = "Нет связи";
-  };
 }
 
 async function authenticate() {
@@ -485,6 +486,11 @@ document.addEventListener("click", async (event) => {
       await Promise.all([loadImports(), loadParcels(), loadDashboard()]);
     } catch (error) { toast(error.message, true); }
   }
+});
+
+$("#picker-sheet").addEventListener("close", () => {
+  setPickerExpanded();
+  state.activePicker = null;
 });
 
 $("#menu-toggle").addEventListener("click", () => {
