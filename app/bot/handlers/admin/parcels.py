@@ -27,7 +27,7 @@ from app.db.models import Parcel
 from app.db.repositories import ParcelRepository
 from app.services.normalization import normalize_tracking_number
 from app.services.notification_service import notify_parcel_status
-from app.services.parcel_service import ParcelService
+from app.services.parcel_service import ParcelService, apply_delivery_dates
 
 router = Router(name="admin_parcels")
 
@@ -177,7 +177,10 @@ async def _save_date(
         await state.clear()
         await message.answer("Дата не изменилась.", reply_markup=admin_menu_keyboard())
         return
-    setattr(parcel, field, value)
+    if field == "expected_at":
+        apply_delivery_dates(parcel, expected_at=value)
+    else:
+        setattr(parcel, field, value)
     await session.commit()
     notified = await notify_parcel_status(
         bot,

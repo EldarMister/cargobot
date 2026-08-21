@@ -53,6 +53,8 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
     values = await SettingRepository(session).all()
     await message.answer(
         "⚙️ <b>Настройки</b>\n\n"
+        f"Компания: {escape(values['company_name']) or '—'}\n"
+        f"Стандартный срок: {escape(values['default_transit_days']) or '12'} дней\n"
         f"Получатель: {escape(values['warehouse_receiver']) or '—'}\n"
         f"Телефон: {escape(values['warehouse_phone']) or '—'}\n"
         f"Адрес: {escape(values['warehouse_address']) or '—'}\n"
@@ -67,6 +69,8 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
 async def setting_start(callback: CallbackQuery, state: FSMContext) -> None:
     key = callback.data.split(":", 1)[1]
     if key not in {
+        "company_name",
+        "default_transit_days",
         "warehouse_receiver",
         "warehouse_phone",
         "warehouse_address",
@@ -84,7 +88,19 @@ async def setting_start(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(AdminStates.setting_value, F.text)
 async def setting_save(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
-    await SettingRepository(session).set(data["setting_key"], message.text.strip())
+    key = data["setting_key"]
+    value = message.text.strip()
+    if key == "default_transit_days":
+        try:
+            days = int(value)
+        except ValueError:
+            await message.answer("Введите целое количество дней, например 12.")
+            return
+        if not 1 <= days <= 90:
+            await message.answer("Срок доставки должен быть от 1 до 90 дней.")
+            return
+        value = str(days)
+    await SettingRepository(session).set(key, value)
     await state.clear()
     await message.answer("✅ Настройка сохранена.", reply_markup=admin_menu_keyboard())
 

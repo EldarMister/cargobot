@@ -39,10 +39,21 @@ def import_status_keyboard() -> InlineKeyboardMarkup:
     return keyboard
 
 
-def optional_date_keyboard() -> ReplyKeyboardMarkup:
+def departure_date_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Пропустить")],
+            [KeyboardButton(text="📅 Сегодня")],
+            [KeyboardButton(text="❌ Отмена")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+def expected_date_keyboard(default_days: int) -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=f"⏳ Автоматически: {default_days} дней")],
             [KeyboardButton(text="❌ Отмена")],
         ],
         resize_keyboard=True,
@@ -91,6 +102,8 @@ def confirm_keyboard(action: str, object_id: int = 0) -> InlineKeyboardMarkup:
 
 def settings_keyboard() -> InlineKeyboardMarkup:
     labels = {
+        "company_name": "Название компании",
+        "default_transit_days": "Стандартный срок доставки",
         "warehouse_receiver": "Получатель склада",
         "warehouse_phone": "Телефон склада",
         "warehouse_address": "Адрес склада",

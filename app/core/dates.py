@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
@@ -33,3 +33,9 @@ def delivery_date_order_is_valid(
     if not sent_at or not expected_at:
         return True
     return as_local(expected_at).date() >= as_local(sent_at).date()
+
+
+def calculate_expected_at(sent_at: datetime, transit_days: int) -> datetime:
+    if not 1 <= transit_days <= 90:
+        raise ValueError("transit_days must be between 1 and 90")
+    return sent_at + timedelta(days=transit_days)

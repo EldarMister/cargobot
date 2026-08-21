@@ -74,11 +74,11 @@ async def registration_city(message: Message, state: FSMContext, session: AsyncS
     await message.answer(
         "✅ <b>Регистрация завершена</b>\n\n"
         f"Ваш код клиента: <b>{user.client_code}</b>\n"
-        "Добавляйте этот код к данным получателя при каждой покупке.",
+        "Добавляйте этот код к данным получателя при каждой покупке.\n\n"
+        f"{warehouse_text(settings, user.client_code)}",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
-    await message.answer(warehouse_text(settings, user.client_code), parse_mode="HTML")
     logger.info("New client registered: code=%s telegram_id=%s", user.client_code, message.from_user.id)
 
 
@@ -125,9 +125,9 @@ async def link_name(message: Message, state: FSMContext, session: AsyncSession) 
         "✅ <b>Профиль успешно привязан!</b>\n\n"
         f"ФИО: {escape(user.full_name)}\n"
         f"Код клиента: <b>{user.client_code}</b>\n"
-        f"Телефон: {escape(user.phone)}",
+        f"Телефон: {escape(user.phone)}\n\n"
+        f"{warehouse_text(settings, user.client_code)}",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
-    await message.answer(warehouse_text(settings, user.client_code), parse_mode="HTML")
     logger.info("Client linked: code=%s telegram_id=%s", user.client_code, message.from_user.id)

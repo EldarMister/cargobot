@@ -29,6 +29,8 @@ class Parcel(TimestampMixin, Base):
     china_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approaching_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    due_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

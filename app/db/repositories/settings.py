@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import AppSetting
 
 DEFAULT_SETTINGS = {
+    "company_name": "BCL EXPRESS",
+    "default_transit_days": "12",
     "warehouse_receiver": "",
     "warehouse_phone": "",
     "warehouse_address": "",

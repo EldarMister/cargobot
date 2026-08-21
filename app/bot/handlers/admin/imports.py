@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
@@ -19,18 +19,27 @@ from sqlalchemy.orm import selectinload
 
 from app.bot.keyboards.admin import (
     admin_menu_keyboard,
+    departure_date_keyboard,
+    expected_date_keyboard,
     import_confirmation_keyboard,
     import_status_keyboard,
-    optional_date_keyboard,
 )
 from app.bot.keyboards.user import cancel_keyboard
 from app.bot.states.admin import AdminStates
-from app.core.dates import delivery_date_order_is_valid, local_date_text, parse_local_date
+from app.core.dates import (
+    calculate_expected_at,
+    delivery_date_order_is_valid,
+    local_date_text,
+    local_timezone,
+    parse_local_date,
+)
 from app.core.enums import ParcelStatus
-from app.db.models import Import
+from app.db.models import Import, Parcel
+from app.db.repositories import SettingRepository
 from app.services.excel_importer import ExcelImporter
 from app.services.import_service import ImportService
-from app.services.notification_service import send_notification
+from app.services.notification_service import notify_parcel_status, send_notification
+from app.services.parcel_service import ParcelService
 
 logger = logging.getLogger(__name__)
 router = Router(name="admin_imports")
@@ -39,6 +48,15 @@ router = Router(name="admin_imports")
 def _stored_date(data: dict, key: str) -> datetime | None:
     value = data.get(key)
     return datetime.fromisoformat(value) if value else None
+
+
+async def _default_transit_days(session: AsyncSession) -> int:
+    value = await SettingRepository(session).get("default_transit_days", "12")
+    try:
+        days = int(value)
+    except ValueError:
+        return 12
+    return days if 1 <= days <= 90 else 12
 
 
 async def _request_excel(message: Message) -> None:
@@ -64,19 +82,30 @@ async def import_flow_cancel(callback: CallbackQuery, state: FSMContext) -> None
 
 
 @router.callback_query(AdminStates.import_status, F.data.startswith("import_status:"))
-async def import_status(callback: CallbackQuery, state: FSMContext) -> None:
+async def import_status(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
     try:
         status = ParcelStatus(callback.data.split(":", 1)[1])
     except ValueError:
         await callback.answer("Неизвестный статус", show_alert=True)
         return
-    await state.update_data(selected_status=status.value, sent_at=None, expected_at=None)
+    transit_days = await _default_transit_days(session)
+    await state.update_data(
+        selected_status=status.value,
+        sent_at=None,
+        expected_at=None,
+        transit_days=transit_days,
+    )
     await callback.message.edit_text(f"Выбран статус: {status.label}")
     if status == ParcelStatus.IN_TRANSIT:
         await state.set_state(AdminStates.import_departure_date)
         await callback.message.answer(
-            "📅 Укажите дату выезда в формате ДД.ММ.ГГГГ:",
-            reply_markup=optional_date_keyboard(),
+            "📅 Укажите дату выезда в формате ДД.ММ.ГГГГ\n"
+            "или нажмите «Сегодня», если машина выезжает сейчас:",
+            reply_markup=departure_date_keyboard(),
         )
     else:
         await state.set_state(AdminStates.import_file)
@@ -86,8 +115,10 @@ async def import_status(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(AdminStates.import_departure_date, F.text)
 async def import_departure_date(message: Message, state: FSMContext) -> None:
-    if message.text.casefold() == "пропустить":
-        sent_at = None
+    if message.text == "📅 Сегодня":
+        sent_at = (
+            datetime.now(local_timezone()).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+        )
     else:
         try:
             sent_at = parse_local_date(message.text)
@@ -95,10 +126,13 @@ async def import_departure_date(message: Message, state: FSMContext) -> None:
             await message.answer("❌ Невозможная или некорректная дата. Используйте формат ДД.ММ.ГГГГ.")
             return
     await state.update_data(sent_at=sent_at.isoformat() if sent_at else None)
+    data = await state.get_data()
+    transit_days = int(data.get("transit_days", 12))
     await state.set_state(AdminStates.import_expected_at)
     await message.answer(
-        "🗓 Укажите примерную дату прибытия в формате ДД.ММ.ГГГГ:",
-        reply_markup=optional_date_keyboard(),
+        "🗓 Укажите примерную дату прибытия в формате ДД.ММ.ГГГГ\n"
+        f"или рассчитайте автоматически через {transit_days} дней:",
+        reply_markup=expected_date_keyboard(transit_days),
     )
 
 
@@ -106,8 +140,11 @@ async def import_departure_date(message: Message, state: FSMContext) -> None:
 async def import_expected_date(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     sent_at = _stored_date(data, "sent_at")
-    if message.text.casefold() == "пропустить":
-        expected_at = None
+    if message.text.startswith("⏳ Автоматически:"):
+        if not sent_at:
+            await message.answer("Сначала укажите дату выезда.")
+            return
+        expected_at = calculate_expected_at(sent_at, int(data.get("transit_days", 12)))
     else:
         try:
             expected_at = parse_local_date(message.text)
@@ -209,18 +246,26 @@ async def import_confirm(
     for event in outcome.notifications:
         delivered += int(await send_notification(bot, event))
     record = outcome.import_record
-    reasons_markup = None
+    action_rows = []
     if record.skipped_rows:
-        reasons_markup = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="⚠️ Причины пропуска",
-                        callback_data=f"import_errors:{record.id}",
-                    )
-                ]
+        action_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="⚠️ Причины пропуска",
+                    callback_data=f"import_errors:{record.id}",
+                )
             ]
         )
+    if selected_status == ParcelStatus.IN_TRANSIT:
+        action_rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🏢 Отметить партию прибывшей",
+                    callback_data=f"import_arrived:{record.id}",
+                )
+            ]
+        )
+    actions_markup = InlineKeyboardMarkup(inline_keyboard=action_rows) if action_rows else None
     lines = [
         "✅ <b>Импорт завершён</b>",
         "",
@@ -244,10 +289,85 @@ async def import_confirm(
     await callback.message.answer(
         "\n".join(lines),
         parse_mode="HTML",
-        reply_markup=reasons_markup,
+        reply_markup=actions_markup,
     )
     await callback.message.answer("Панель администратора", reply_markup=admin_menu_keyboard())
     logger.info("Import completed: id=%s file=%s", record.id, filename)
+
+
+@router.callback_query(F.data.startswith("import_arrived:"))
+async def import_arrived_start(callback: CallbackQuery, session: AsyncSession) -> None:
+    import_id = int(callback.data.split(":", 1)[1])
+    parcel_ids = list(
+        await session.scalars(
+            select(Parcel.id).where(
+                Parcel.import_id == import_id,
+                Parcel.status == ParcelStatus.IN_TRANSIT,
+            )
+        )
+    )
+    if not parcel_ids:
+        await callback.answer("В этой партии нет товаров со статусом «В пути».", show_alert=True)
+        return
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Подтвердить прибытие",
+                    callback_data=f"import_arrived_confirm:{import_id}",
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="import_arrived_cancel"),
+            ]
+        ]
+    )
+    await callback.message.answer(
+        f"Отметить прибывшими все товары этой партии?\nТоваров: {len(parcel_ids)}",
+        reply_markup=markup,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "import_arrived_cancel")
+async def import_arrived_cancel(callback: CallbackQuery) -> None:
+    await callback.message.edit_text("Изменение статуса отменено.")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("import_arrived_confirm:"))
+async def import_arrived_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    import_id = int(callback.data.split(":", 1)[1])
+    parcels = list(
+        await session.scalars(
+            select(Parcel)
+            .options(selectinload(Parcel.user))
+            .where(
+                Parcel.import_id == import_id,
+                Parcel.status == ParcelStatus.IN_TRANSIT,
+            )
+        )
+    )
+    if not parcels:
+        await callback.answer("Партия уже обновлена.", show_alert=True)
+        return
+    service = ParcelService(session)
+    changed = []
+    for parcel in parcels:
+        if await service.change_status(
+            parcel,
+            ParcelStatus.ARRIVED_COUNTRY,
+            callback.from_user.id,
+        ):
+            changed.append(parcel)
+    await session.commit()
+    notified = 0
+    for parcel in changed:
+        notified += int(await notify_parcel_status(bot, parcel, status_changed=True))
+    await callback.message.edit_text(
+        "✅ Партия отмечена прибывшей.\n"
+        f"Товаров обновлено: {len(changed)}\n"
+        f"Уведомлений отправлено: {notified}"
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("import_errors:"))

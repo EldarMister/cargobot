@@ -52,6 +52,8 @@ def apply_delivery_dates(
         parcel.sent_at = sent_at
     if expected_at_changed:
         parcel.expected_at = expected_at
+        parcel.approaching_notified_at = None
+        parcel.due_notified_at = None
     return DeliveryDateChanges(sent_at=sent_at_changed, expected_at=expected_at_changed)
 
 
@@ -70,6 +72,9 @@ class ParcelService:
             return False
         old_status = parcel.status
         parcel.status = new_status
+        if new_status == ParcelStatus.IN_TRANSIT:
+            parcel.approaching_notified_at = None
+            parcel.due_notified_at = None
         date_field = STATUS_DATE_FIELD.get(new_status)
         if date_field and getattr(parcel, date_field) is None:
             setattr(parcel, date_field, datetime.now(UTC))

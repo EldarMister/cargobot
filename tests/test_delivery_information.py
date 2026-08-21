@@ -3,13 +3,19 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import func, select
 
-from app.core.dates import delivery_date_order_is_valid, parse_local_date
+from app.core.dates import calculate_expected_at, delivery_date_order_is_valid, parse_local_date
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel, ParcelStatusHistory
+from app.services.delivery_reminder_service import ReminderKind, reminder_for, reminder_text
 from app.services.import_service import ParcelNotification
 from app.services.notification_service import notification_text
-from app.services.parcel_service import ParcelService
-from app.services.presentation import format_parcel, pluralize_days, remaining_arrival_text
+from app.services.parcel_service import ParcelService, apply_delivery_dates
+from app.services.presentation import (
+    format_parcel,
+    pluralize_days,
+    remaining_arrival_text,
+    warehouse_text,
+)
 
 
 @pytest.mark.parametrize(
@@ -39,6 +45,15 @@ def test_impossible_and_reversed_dates_are_rejected():
     earlier_arrival = parse_local_date("15.05.2026")
     assert not delivery_date_order_is_valid(sent_at, earlier_arrival)
     assert delivery_date_order_is_valid(sent_at, None)
+
+
+def test_expected_arrival_is_calculated_from_transit_days():
+    sent_at = datetime(2026, 5, 16, tzinfo=UTC)
+
+    assert calculate_expected_at(sent_at, 12) == datetime(2026, 5, 28, tzinfo=UTC)
+
+    with pytest.raises(ValueError):
+        calculate_expected_at(sent_at, 0)
 
 
 async def test_manual_status_change_writes_history_only_once(session):
@@ -87,3 +102,64 @@ def test_old_parcel_without_dates_is_rendered_safely():
     assert "OLDTRACK0001" in text
     assert "Выехал" not in text
     assert "Примерно приедет" not in text
+
+
+def test_warehouse_address_includes_client_code():
+    text = warehouse_text(
+        {
+            "warehouse_receiver": "王国利",
+            "warehouse_phone": "18818913136",
+            "warehouse_address": "广东省广州市",
+            "warehouse_name": "BCL库房",
+        },
+        "J-8226",
+    )
+
+    assert "Получатель: 王国利 J-8226" in text
+    assert "Телефон: 18818913136" in text
+    assert "Адрес: 广东省广州市" in text
+    assert "Склад: BCL库房 J-8226" in text
+
+
+def test_delivery_reminders_are_one_time_and_do_not_mark_arrival():
+    parcel = Parcel(
+        tracking_number="REMINDER0001",
+        client_code="J-8226",
+        status=ParcelStatus.IN_TRANSIT,
+        expected_at=datetime(2026, 5, 26, tzinfo=UTC),
+    )
+
+    approaching = reminder_for(parcel, date(2026, 5, 23))
+    assert approaching is not None
+    assert approaching.kind == ReminderKind.APPROACHING
+    assert "со дня на день" in reminder_text(parcel, approaching)
+    assert parcel.status == ParcelStatus.IN_TRANSIT
+
+    parcel.approaching_notified_at = datetime(2026, 5, 23, tzinfo=UTC)
+    assert reminder_for(parcel, date(2026, 5, 24)) is None
+
+    due = reminder_for(parcel, date(2026, 5, 26))
+    assert due is not None
+    assert due.kind == ReminderKind.DUE
+    assert "Точная дата прибытия уточняется" in reminder_text(parcel, due)
+    assert parcel.status == ParcelStatus.IN_TRANSIT
+
+    parcel.due_notified_at = datetime(2026, 5, 26, tzinfo=UTC)
+    assert reminder_for(parcel, date(2026, 5, 27)) is None
+
+
+def test_changed_expected_date_rearms_delivery_reminders():
+    parcel = Parcel(
+        tracking_number="REMINDER0002",
+        client_code="J-8226",
+        status=ParcelStatus.IN_TRANSIT,
+        expected_at=datetime(2026, 5, 26, tzinfo=UTC),
+        approaching_notified_at=datetime(2026, 5, 23, tzinfo=UTC),
+        due_notified_at=datetime(2026, 5, 26, tzinfo=UTC),
+    )
+
+    changes = apply_delivery_dates(parcel, expected_at=datetime(2026, 5, 29, tzinfo=UTC))
+
+    assert changes.expected_at is True
+    assert parcel.approaching_notified_at is None
+    assert parcel.due_notified_at is None

@@ -130,6 +130,9 @@ class ImportService:
                 date_changes = apply_delivery_dates(parcel, sent_at, expected_at)
                 if old_status != selected_status:
                     parcel.status = selected_status
+                    if selected_status == ParcelStatus.IN_TRANSIT:
+                        parcel.approaching_notified_at = None
+                        parcel.due_notified_at = None
                     if date_field and getattr(parcel, date_field) is None:
                         setattr(parcel, date_field, datetime.now(UTC))
                     from app.db.models import ParcelStatusHistory

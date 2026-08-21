@@ -1,1 +1,1 @@
-"""Cargo Express Telegram bot."""
+"""BCL Express Telegram bot."""

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -11,6 +12,7 @@ from app.bot.middlewares import DatabaseMiddleware
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.db.session import create_engine_and_sessionmaker
+from app.services.delivery_reminder_service import delivery_reminder_loop
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +29,23 @@ async def main() -> None:
     dispatcher = Dispatcher(storage=storage)
     dispatcher.update.outer_middleware(DatabaseMiddleware(session_factory))
     register_routers(dispatcher, settings)
+    reminder_task = asyncio.create_task(
+        delivery_reminder_loop(bot, session_factory),
+        name="delivery-reminders",
+    )
 
-    logger.info("Starting Cargo Express bot")
+    logger.info("Starting BCL Express bot")
     try:
         await bot.delete_webhook(drop_pending_updates=False)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
+        reminder_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await reminder_task
         await storage.close()
         await bot.session.close()
         await engine.dispose()
-        logger.info("Cargo Express bot stopped")
+        logger.info("BCL Express bot stopped")
 
 
 if __name__ == "__main__":
