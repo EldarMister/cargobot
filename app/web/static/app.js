@@ -86,12 +86,25 @@ function empty(message) {
   return `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
+function statusTone(status) {
+  return ({
+    CHINA_WAREHOUSE: "orange",
+    PREPARING: "amber",
+    IN_TRANSIT: "blue",
+    ARRIVED_COUNTRY: "violet",
+    LOCAL_WAREHOUSE: "violet",
+    READY_FOR_PICKUP: "green",
+    DELIVERED: "slate",
+    CANCELLED: "red",
+  })[status] || "blue";
+}
+
 function parcelRow(parcel, actions = true) {
   return `
-    <article class="table-row">
+    <article class="table-row parcel-row">
       <div><strong>${escapeHtml(parcel.tracking_number)}</strong><small>${parcel.expected_at ? `Ожидается ${escapeHtml(parcel.expected_at)}` : "Дата не указана"}</small></div>
       <div><span class="table-cell-code">${escapeHtml(parcel.client_code)}</span><small>${escapeHtml(parcel.client_name || "Клиент не привязан")}</small></div>
-      <div><span class="status-badge">${escapeHtml(parcel.status_label)}</span>${actions ? `<button class="row-action" data-edit-parcel="${parcel.id}">Изменить статус</button>` : ""}</div>
+      <div><span class="status-badge ${statusTone(parcel.status)}">${escapeHtml(parcel.status_label)}</span>${actions ? `<button class="row-action" data-edit-parcel="${parcel.id}">Изменить статус</button>` : ""}</div>
     </article>`;
 }
 
@@ -107,15 +120,13 @@ function renderDashboard(data) {
     ARRIVED_COUNTRY: data.arrived,
     OTHER: Math.max(0, data.total_parcels - data.in_transit - data.arrived),
   };
-  const total = Math.max(1, data.total_parcels);
   const labels = Object.fromEntries(state.statuses.map((item) => [item.value, item.label]));
   labels.OTHER = "Остальные статусы";
   $("#status-summary").innerHTML = Object.entries(statusCounts)
     .filter(([, count]) => count > 0)
     .map(([value, count]) => `
       <div class="status-line">
-        <div><span>${escapeHtml(labels[value] || value)}</span><b>${count}</b></div>
-        <span class="status-track"><i style="width:${Math.max(3, Math.round(count / total * 100))}%"></i></span>
+        <span><i class="status-dot ${statusTone(value)}"></i>${escapeHtml(labels[value] || value)}</span><b>${count}</b>
       </div>`).join("") || empty("Статистика появится после загрузки товаров");
 
   const recent = state.parcels.slice(0, 5);
@@ -153,8 +164,8 @@ function renderClients() {
 
 function importRow(item) {
   return `
-    <article class="table-row">
-      <div><strong>${escapeHtml(item.filename)}</strong><small>Партия №${item.id} · ${escapeHtml(item.status_label)}</small></div>
+    <article class="table-row import-row">
+      <div><div class="import-name"><span class="excel-mark">X</span><strong>${escapeHtml(item.filename)}</strong></div><small>Партия №${item.id} · ${escapeHtml(item.status_label)}</small></div>
       <div>${item.sent_at ? `<span>${escapeHtml(item.sent_at)}</span>` : "—"}<small>${item.expected_at ? `Ожидается ${escapeHtml(item.expected_at)}` : "Без расчётной даты"}</small></div>
       <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div>
     </article>`;
@@ -265,7 +276,7 @@ function openPicker(name) {
   $("#picker-title").textContent = name === "status" ? "Выберите статус" : "Сортировать товары";
   $("#picker-options").innerHTML = pickerItems(name).map((item) => `
     <button class="picker-option${item.value === select.value ? " selected" : ""}" type="button" data-picker-value="${escapeHtml(item.value)}">
-      <span>${escapeHtml(item.label)}</span><i>✓</i>
+      <span>${escapeHtml(item.label)}</span><i aria-hidden="true"></i>
     </button>`).join("");
   $("#picker-sheet").showModal();
 }
