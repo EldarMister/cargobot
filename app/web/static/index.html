@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#082c55">
   <meta name="description" content="Мобильная панель управления доставкой BCL EXPRESS">
   <title>BCL EXPRESS — Панель</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260821-2">
+  <link rel="stylesheet" href="/static/styles.css?v=20260821-3">
   <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
 </head>
 <body>
@@ -33,8 +33,8 @@
     <main>
       <section class="view active" data-view="dashboard">
         <div class="summary-card">
-          <article><div class="summary-label"><span class="summary-icon blue">▣</span><span>Товаров в пути</span></div><strong id="hero-transit">—</strong><small>активные отправления</small></article>
-          <article><div class="summary-label"><span class="summary-icon green">◇</span><span>Прибыло</span></div><strong id="stat-arrived">—</strong><small>в Кыргызстане</small></article>
+          <article><div class="summary-label"><span class="summary-icon blue" aria-hidden="true"></span><span>Товаров в пути</span></div><strong id="hero-transit">—</strong><small>активные отправления</small></article>
+          <article><div class="summary-label"><span class="summary-icon green" aria-hidden="true"></span><span>Прибыло</span></div><strong id="stat-arrived">—</strong><small>в Кыргызстане</small></article>
         </div>
         <section class="panel statistics-panel">
           <div class="panel-heading"><h2>Общая статистика</h2><span>Обновляется онлайн</span></div>
@@ -97,6 +97,6 @@
   <dialog class="sheet picker-sheet" id="picker-sheet"><form method="dialog"><div class="picker-heading"><h2 id="picker-title">Выберите вариант</h2><button type="submit" value="cancel" aria-label="Закрыть">×</button></div><div class="picker-options" id="picker-options"></div></form></dialog>
   <dialog class="sheet" id="import-sheet"><form id="import-form"><div class="sheet-handle"></div><p class="eyebrow">НОВАЯ ПАРТИЯ</p><h2>Загрузить Excel</h2><label class="upload-zone" for="excel-file"><strong>Выбрать файл</strong><span id="file-name">.xls или .xlsx, до 20 МБ</span></label><input id="excel-file" name="file" type="file" accept=".xls,.xlsx" required hidden><label class="field-label" for="import-status">Статус партии</label><select id="import-status" name="selected_status"></select><div id="transit-fields"><label class="field-label" for="sent-date">Дата выезда</label><input id="sent-date" name="sent_date" type="date"><label class="field-label" for="transit-days">Срок доставки, дней</label><input id="transit-days" name="transit_days" type="number" min="1" max="90" value="12"></div><div class="sheet-actions"><button type="button" class="secondary-button" id="cancel-import">Отмена</button><button type="submit" class="primary-button">Импортировать</button></div></form></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=20260821-2" defer></script>
+  <script src="/static/app.js?v=20260821-3" defer></script>
 </body>
 </html>

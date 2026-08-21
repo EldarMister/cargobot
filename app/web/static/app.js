@@ -99,12 +99,35 @@ function statusTone(status) {
   })[status] || "blue";
 }
 
+function statusText(label) {
+  return String(label || "").replace(/^(?:🇨🇳|📦|🚚|🏢|✅|📬|❌)\s*/u, "");
+}
+
+function statusIcon(status) {
+  return ({
+    CHINA_WAREHOUSE: "flag",
+    PREPARING: "box",
+    IN_TRANSIT: "truck",
+    ARRIVED_COUNTRY: "building",
+    LOCAL_WAREHOUSE: "building",
+    READY_FOR_PICKUP: "check",
+    DELIVERED: "check",
+    CANCELLED: "cross",
+  })[status] || "dot";
+}
+
+function statusBadge(parcel, actions) {
+  const tag = actions ? "button" : "span";
+  const action = actions ? ` type="button" data-edit-parcel="${parcel.id}"` : "";
+  return `<${tag} class="status-badge ${statusTone(parcel.status)}"${action}><i class="${statusIcon(parcel.status)}" aria-hidden="true"></i><span>${escapeHtml(statusText(parcel.status_label))}</span></${tag}>`;
+}
+
 function parcelRow(parcel, actions = true) {
   return `
     <article class="table-row parcel-row">
-      <div><strong>${escapeHtml(parcel.tracking_number)}</strong><small>${parcel.expected_at ? `Ожидается ${escapeHtml(parcel.expected_at)}` : "Дата не указана"}</small></div>
+      <div><strong>${escapeHtml(parcel.tracking_number)}</strong><small>${parcel.expected_at ? escapeHtml(parcel.expected_at) : "Дата не указана"}</small></div>
       <div><span class="table-cell-code">${escapeHtml(parcel.client_code)}</span><small>${escapeHtml(parcel.client_name || "Клиент не привязан")}</small></div>
-      <div><span class="status-badge ${statusTone(parcel.status)}">${escapeHtml(parcel.status_label)}</span>${actions ? `<button class="row-action" data-edit-parcel="${parcel.id}">Изменить статус</button>` : ""}</div>
+      <div>${statusBadge(parcel, actions)}</div>
     </article>`;
 }
 
@@ -167,7 +190,7 @@ function importRow(item) {
     <article class="table-row import-row">
       <div><div class="import-name"><span class="excel-mark">X</span><strong>${escapeHtml(item.filename)}</strong></div><small>Партия №${item.id} · ${escapeHtml(item.status_label)}</small></div>
       <div>${item.sent_at ? `<span>${escapeHtml(item.sent_at)}</span>` : "—"}<small>${item.expected_at ? `Ожидается ${escapeHtml(item.expected_at)}` : "Без расчётной даты"}</small></div>
-      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div>
+      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div><i class="row-chevron" aria-hidden="true"></i>
     </article>`;
 }
 
