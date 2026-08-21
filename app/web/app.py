@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import MenuButtonCommands, MenuButtonWebApp, WebAppInfo
 from fastapi import (
     Cookie,
     Depends,
@@ -60,9 +62,17 @@ class StatusUpdateRequest(BaseModel):
     status: ParcelStatus
 
 
+class ParcelUpdateRequest(BaseModel):
+    client_code: str = Field(min_length=1, max_length=32)
+    status: ParcelStatus
+    sent_date: str | None = None
+    expected_date: str | None = None
+
+
 class ImportStatusUpdateRequest(BaseModel):
     status: ParcelStatus
     sent_date: str | None = None
+    expected_date: str | None = None
     transit_days: int = Field(default=12, ge=1, le=90)
 
 
@@ -82,6 +92,10 @@ class ClientBlockRequest(BaseModel):
     days: int = Field(default=1, ge=1, le=365)
 
 
+class ClientAdminRequest(BaseModel):
+    is_admin: bool
+
+
 class SettingsUpdateRequest(BaseModel):
     company_name: str = Field(min_length=1, max_length=80)
     default_transit_days: int = Field(ge=1, le=90)
@@ -96,6 +110,10 @@ def _date(value: datetime | None) -> str | None:
     return as_local(value).strftime("%d.%m.%Y") if value else None
 
 
+def _date_input(value: datetime | None) -> str | None:
+    return as_local(value).strftime("%Y-%m-%d") if value else None
+
+
 def _parcel_payload(parcel: Parcel) -> dict:
     return {
         "id": parcel.id,
@@ -107,13 +125,16 @@ def _parcel_payload(parcel: Parcel) -> dict:
         "status_label": parcel.status.label,
         "sent_at": _date(parcel.sent_at),
         "expected_at": _date(parcel.expected_at),
+        "sent_date": _date_input(parcel.sent_at),
+        "expected_date": _date_input(parcel.expected_at),
         "updated_at": as_local(parcel.updated_at).isoformat(),
     }
 
 
-def _client_payload(user: User, parcel_count: int) -> dict:
+def _client_payload(user: User, parcel_count: int, system_admin_ids: set[int] | None = None) -> dict:
     blocked_until = user.blocked_until
     blocked_temporarily = bool(blocked_until and not user.has_access())
+    is_system_admin = bool(user.telegram_id and user.telegram_id in (system_admin_ids or set()))
     return {
         "id": user.id,
         "client_code": user.client_code,
@@ -121,6 +142,9 @@ def _client_payload(user: User, parcel_count: int) -> dict:
         "phone": user.phone,
         "city": user.city,
         "telegram_id": user.telegram_id,
+        "language": user.language,
+        "is_admin": user.is_admin or is_system_admin,
+        "is_system_admin": is_system_admin,
         "parcels": int(parcel_count),
         "is_active": user.is_active,
         "is_blocked": not user.has_access(),
@@ -175,7 +199,15 @@ def create_web_app(
         except WebAuthError as exc:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
         if telegram_id not in settings.admin_id_set:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа")
+            async with session_factory() as session:
+                delegated = await session.scalar(
+                    select(User.is_admin).where(
+                        User.telegram_id == telegram_id,
+                        User.is_admin.is_(True),
+                    )
+                )
+            if not delegated:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа")
         return telegram_id
 
     @app.get("/health")
@@ -194,7 +226,15 @@ def create_web_app(
         except WebAuthError as exc:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
         if telegram_user.telegram_id not in settings.admin_id_set:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к админ-панели")
+            async with session_factory() as session:
+                delegated = await session.scalar(
+                    select(User.is_admin).where(
+                        User.telegram_id == telegram_user.telegram_id,
+                        User.is_admin.is_(True),
+                    )
+                )
+            if not delegated:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к админ-панели")
         session_token = create_admin_session(telegram_user.telegram_id, settings.bot_token)
         response.set_cookie(
             SESSION_COOKIE,
@@ -334,6 +374,82 @@ def create_web_app(
                 notified = False
             return {"parcel": _parcel_payload(parcel), "changed": changed, "notified": notified}
 
+    @app.patch("/api/parcels/{parcel_id}")
+    async def update_parcel(
+        parcel_id: int,
+        payload: ParcelUpdateRequest,
+        admin_id: int = Depends(require_admin),
+    ) -> dict:
+        if not is_valid_client_code(payload.client_code):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "J-код должен быть в формате J-0001",
+            )
+        sent_at = _parse_web_date(payload.sent_date)
+        expected_at = _parse_web_date(payload.expected_date)
+        if sent_at and expected_at and expected_at < sent_at:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Ожидаемая дата не может быть раньше даты выезда",
+            )
+        client_code = normalize_client_code(payload.client_code)
+        async with session_factory() as session:
+            parcel = await session.scalar(
+                select(Parcel).options(selectinload(Parcel.user)).where(Parcel.id == parcel_id)
+            )
+            if not parcel:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
+
+            old_sent_at = parcel.sent_at
+            old_expected_at = parcel.expected_at
+            old_client_code = parcel.client_code
+            status_changed = await ParcelService(session).change_status(
+                parcel,
+                payload.status,
+                admin_id,
+            )
+            parcel.client_code = client_code
+            parcel.user = await UserRepository(session).by_client_code(client_code)
+            parcel.sent_at = sent_at
+            parcel.expected_at = expected_at
+            dates_changed = old_sent_at != sent_at or old_expected_at != expected_at
+            client_changed = old_client_code != client_code
+            if old_expected_at != expected_at:
+                parcel.approaching_notified_at = None
+                parcel.due_notified_at = None
+            await session.commit()
+            parcel = await session.scalar(
+                select(Parcel).options(selectinload(Parcel.user)).where(Parcel.id == parcel_id)
+            )
+            notified = False
+            if status_changed or dates_changed or client_changed:
+                notified = await notify_parcel_status(
+                    bot,
+                    parcel,
+                    status_changed=status_changed or client_changed,
+                    dates_changed=dates_changed,
+                    sent_at_changed=old_sent_at != sent_at,
+                    expected_at_changed=old_expected_at != expected_at,
+                )
+            return {
+                "parcel": _parcel_payload(parcel),
+                "changed": status_changed or dates_changed or client_changed,
+                "notified": notified,
+            }
+
+    @app.delete("/api/parcels/{parcel_id}")
+    async def delete_parcel(
+        parcel_id: int,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            parcel = await session.get(Parcel, parcel_id)
+            if not parcel:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Товар не найден")
+            await session.delete(parcel)
+            await session.commit()
+        return {"ok": True, "id": parcel_id}
+
     @app.get("/api/clients")
     async def clients(query: str = "", _: int = Depends(require_admin)) -> list[dict]:
         async with session_factory() as session:
@@ -355,7 +471,10 @@ def create_web_app(
                     )
                 )
             rows = (await session.execute(statement)).all()
-            return [_client_payload(user, parcel_count) for user, parcel_count in rows]
+            return [
+                _client_payload(user, parcel_count, settings.admin_id_set)
+                for user, parcel_count in rows
+            ]
 
     @app.post("/api/clients")
     async def create_client(
@@ -401,7 +520,7 @@ def create_web_app(
                 )
                 or 0
             )
-            return _client_payload(user, parcel_count)
+            return _client_payload(user, parcel_count, settings.admin_id_set)
 
     @app.patch("/api/clients/{client_id}")
     async def update_client(
@@ -435,7 +554,7 @@ def create_web_app(
                 )
                 or 0
             )
-            return _client_payload(user, parcel_count)
+            return _client_payload(user, parcel_count, settings.admin_id_set)
 
     @app.post("/api/clients/{client_id}/block")
     async def block_client(
@@ -463,7 +582,50 @@ def create_web_app(
                 )
                 or 0
             )
-            return _client_payload(user, parcel_count)
+            return _client_payload(user, parcel_count, settings.admin_id_set)
+
+    @app.post("/api/clients/{client_id}/admin")
+    async def set_client_admin(
+        client_id: int,
+        payload: ClientAdminRequest,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            if not user.telegram_id:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Сначала привяжите Telegram ID клиента",
+                )
+            if user.telegram_id in settings.admin_id_set and not payload.is_admin:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Главного администратора нельзя лишить доступа из панели",
+                )
+            user.is_admin = payload.is_admin
+            await session.commit()
+
+            try:
+                if payload.is_admin and settings.public_web_url:
+                    menu_button = MenuButtonWebApp(
+                        text="Админ-панель",
+                        web_app=WebAppInfo(url=f"{settings.public_web_url}/panel"),
+                    )
+                else:
+                    menu_button = MenuButtonCommands()
+                await bot.set_chat_menu_button(chat_id=user.telegram_id, menu_button=menu_button)
+            except TelegramAPIError:
+                pass
+
+            parcel_count = int(
+                await session.scalar(
+                    select(func.count(Parcel.id)).where(Parcel.client_code == user.client_code)
+                )
+                or 0
+            )
+            return _client_payload(user, parcel_count, settings.admin_id_set)
 
     @app.get("/api/clients/{client_id}/parcels")
     async def client_parcels(
@@ -496,6 +658,8 @@ def create_web_app(
                     "status_label": item.selected_status.label,
                     "sent_at": _date(item.sent_at),
                     "expected_at": _date(item.expected_at),
+                    "sent_date": _date_input(item.sent_at),
+                    "expected_date": _date_input(item.expected_at),
                     "created_rows": item.created_rows,
                     "updated_rows": item.updated_rows,
                     "skipped_rows": item.skipped_rows,
@@ -587,17 +751,21 @@ def create_web_app(
             import_record = await session.get(Import, import_id)
             if not import_record:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
-            sent_at = None
-            expected_at = None
-            if payload.status == ParcelStatus.IN_TRANSIT:
-                sent_at = _parse_web_date(payload.sent_date) or import_record.sent_at
-                if not sent_at:
-                    sent_at = (
-                        datetime.now(local_timezone())
-                        .replace(hour=0, minute=0, second=0, microsecond=0)
-                        .astimezone(UTC)
-                    )
+            sent_at = _parse_web_date(payload.sent_date)
+            expected_at = _parse_web_date(payload.expected_date)
+            if payload.status == ParcelStatus.IN_TRANSIT and not sent_at:
+                sent_at = import_record.sent_at or (
+                    datetime.now(local_timezone())
+                    .replace(hour=0, minute=0, second=0, microsecond=0)
+                    .astimezone(UTC)
+                )
+            if payload.status == ParcelStatus.IN_TRANSIT and not expected_at:
                 expected_at = calculate_expected_at(sent_at, payload.transit_days)
+            if sent_at and expected_at and expected_at < sent_at:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "Ожидаемая дата не может быть раньше даты выезда",
+                )
             record, changed = await ParcelService(session).change_import_status(
                 import_id,
                 payload.status,
@@ -613,6 +781,10 @@ def create_web_app(
                 "id": record.id,
                 "status": record.selected_status.value,
                 "status_label": record.selected_status.label,
+                "sent_at": _date(record.sent_at),
+                "expected_at": _date(record.expected_at),
+                "sent_date": _date_input(record.sent_at),
+                "expected_date": _date_input(record.expected_at),
                 "updated": len(changed),
                 "notifications": notified,
             }

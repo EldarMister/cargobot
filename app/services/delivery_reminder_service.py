@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.core.dates import as_local, local_date_text, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel
+from app.i18n import t
 from app.services.presentation import pluralize_days
 
 logger = logging.getLogger(__name__)
@@ -45,23 +46,29 @@ def reminder_for(parcel: Parcel, today: date | None = None) -> DeliveryReminder 
     return None
 
 
-def reminder_text(parcel: Parcel, reminder: DeliveryReminder) -> str:
+def reminder_text(parcel: Parcel, reminder: DeliveryReminder, language: str = "ru") -> str:
     lines = [
         (
-            "🚚 <b>Ваш товар ожидается со дня на день</b>"
+            t("reminder.approaching", language)
             if reminder.kind == ReminderKind.APPROACHING
-            else "🗓 <b>Расчётный срок доставки наступил</b>"
+            else t("reminder.due", language)
         ),
         "",
-        f"📦 Трек-код: <code>{escape(parcel.tracking_number)}</code>",
-        f"🔑 Код клиента: {escape(parcel.client_code)}",
+        t("reminder.tracking", language, value=escape(parcel.tracking_number)),
+        t("reminder.client_code", language, value=escape(parcel.client_code)),
     ]
     if parcel.expected_at:
-        lines.append(f"🗓 Примерная дата: {local_date_text(parcel.expected_at)}")
+        lines.append(t("reminder.expected", language, date=local_date_text(parcel.expected_at)))
     if reminder.kind == ReminderKind.APPROACHING:
-        lines.append(f"⌛ Осталось примерно: {pluralize_days(reminder.days_remaining)}")
+        lines.append(
+            t(
+                "reminder.remaining",
+                language,
+                count=pluralize_days(reminder.days_remaining, language),
+            )
+        )
     else:
-        lines.extend(["", "Точная дата прибытия уточняется."])
+        lines.extend(["", t("reminder.pending", language)])
     return "\n".join(lines)
 
 
@@ -87,7 +94,7 @@ async def send_delivery_reminders(session: AsyncSession, bot: Bot) -> int:
         try:
             await bot.send_message(
                 parcel.user.telegram_id,
-                reminder_text(parcel, reminder),
+                reminder_text(parcel, reminder, parcel.user.language or "ru"),
                 parse_mode="HTML",
             )
         except TelegramAPIError as exc:

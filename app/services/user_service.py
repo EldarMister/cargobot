@@ -15,6 +15,10 @@ from app.services.normalization import (
 class UserServiceError(ValueError):
     """A safe, user-facing domain validation error."""
 
+    def __init__(self, message: str, code: str = "owner_mismatch"):
+        super().__init__(message)
+        self.code = code
+
 
 class UserService:
     def __init__(self, session: AsyncSession):
@@ -27,15 +31,16 @@ class UserService:
         full_name: str,
         phone: str = "",
         city: str | None = None,
+        language: str | None = None,
     ) -> User:
         if await self.users.by_telegram_id(telegram_id):
-            raise UserServiceError("Этот Telegram-аккаунт уже зарегистрирован.")
+            raise UserServiceError("Этот Telegram-аккаунт уже зарегистрирован.", "telegram_registered")
         full_name = " ".join(full_name.split())
         phone = normalize_phone(phone) if phone else ""
         if len(full_name) < 3:
-            raise UserServiceError("Укажите полное имя.")
+            raise UserServiceError("Укажите полное имя.", "full_name")
         if phone and len(phone) < 8:
-            raise UserServiceError("Не удалось распознать номер телефона.")
+            raise UserServiceError("Не удалось распознать номер телефона.", "phone")
 
         for _ in range(5):
             number = await self.users.next_client_number()
@@ -45,6 +50,7 @@ class UserService:
                 full_name=full_name,
                 phone=phone,
                 city=city or None,
+                language=language,
             )
             self.session.add(user)
             try:
@@ -53,21 +59,30 @@ class UserService:
                 return user
             except IntegrityError:
                 await self.session.rollback()
-        raise UserServiceError("Не удалось назначить свободный код. Повторите попытку.")
+        raise UserServiceError(
+            "Не удалось назначить свободный код. Повторите попытку.",
+            "client_code_assignment",
+        )
 
     async def link_existing(self, telegram_id: int, client_code: str, full_name: str) -> User:
         existing_telegram = await self.users.by_telegram_id(telegram_id)
         if existing_telegram:
             if existing_telegram.client_code == normalize_client_code(client_code):
                 return existing_telegram
-            raise UserServiceError("К этому Telegram-аккаунту уже привязан другой код.")
+            raise UserServiceError(
+                "К этому Telegram-аккаунту уже привязан другой код.",
+                "other_code",
+            )
 
         user = await self.users.by_client_code(normalize_client_code(client_code))
         generic_error = "Код или данные владельца не совпадают."
         if not user or not user.has_access():
             raise UserServiceError(generic_error)
         if user.telegram_id is not None and user.telegram_id != telegram_id:
-            raise UserServiceError("Этот код уже привязан. Обратитесь к администратору.")
+            raise UserServiceError(
+                "Этот код уже привязан. Обратитесь к администратору.",
+                "code_linked",
+            )
         if normalize_name(user.full_name) != normalize_name(full_name):
             raise UserServiceError(generic_error)
 

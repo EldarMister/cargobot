@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramAPIError
 from app.core.dates import local_date_text
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel
+from app.i18n import status_label, t
 from app.services.import_service import ParcelNotification
 from app.services.presentation import remaining_arrival_text
 
@@ -14,33 +15,33 @@ logger = logging.getLogger(__name__)
 
 def notification_text(event: ParcelNotification) -> str:
     if event.is_new:
-        title = "📦 Новый товар зарегистрирован"
+        title = t("notification.new", event.language)
     elif event.dates_changed and not event.status_changed:
-        title = "🗓 Обновлена информация о доставке"
+        title = t("notification.dates", event.language)
     elif event.status in {ParcelStatus.ARRIVED_COUNTRY, ParcelStatus.LOCAL_WAREHOUSE}:
-        title = "🏢 Ваш товар прибыл"
+        title = t("notification.arrived", event.language)
     elif event.status == ParcelStatus.READY_FOR_PICKUP:
-        title = "✅ Ваш товар готов к выдаче"
+        title = t("notification.ready", event.language)
     else:
-        title = "🚚 Обновление по вашему товару"
+        title = t("notification.updated", event.language)
     lines = [
         title,
         "",
-        f"📦 Трек-код: <code>{event.tracking_number}</code>",
-        f"🔑 Код клиента: {event.client_code}",
-        f"📊 Статус: {event.status.label}",
+        t("notification.tracking", event.language, value=event.tracking_number),
+        t("notification.client_code", event.language, value=event.client_code),
+        t("notification.status", event.language, value=status_label(event.status, event.language)),
     ]
     if event.sent_at:
-        lines.append(f"📅 Выехал: {local_date_text(event.sent_at)}")
+        lines.append(t("sent_at", event.language, date=local_date_text(event.sent_at)))
     if event.expected_at:
         date_label = (
-            "🗓 Новая примерная дата прибытия"
+            t("notification.new_expected", event.language)
             if event.expected_at_changed and not event.status_changed
-            else "🗓 Примерно приедет"
+            else t("notification.expected", event.language)
         )
         lines.append(f"{date_label}: {local_date_text(event.expected_at)}")
         if event.status not in {ParcelStatus.DELIVERED, ParcelStatus.CANCELLED}:
-            lines.append(remaining_arrival_text(event.expected_at))
+            lines.append(remaining_arrival_text(event.expected_at, language=event.language))
     return "\n".join(lines)
 
 
@@ -78,5 +79,6 @@ async def notify_parcel_status(
             expected_at_changed=expected_at_changed,
             sent_at=parcel.sent_at,
             expected_at=parcel.expected_at,
+            language=parcel.user.language or "ru",
         ),
     )

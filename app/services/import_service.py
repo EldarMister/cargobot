@@ -25,6 +25,7 @@ class ParcelNotification:
     expected_at_changed: bool = False
     sent_at: datetime | None = None
     expected_at: datetime | None = None
+    language: str = "ru"
 
 
 @dataclass(slots=True)
@@ -182,6 +183,7 @@ class ImportService:
                         expected_at_changed=bool(date_changes and date_changes.expected_at),
                         sent_at=parcel.sent_at,
                         expected_at=parcel.expected_at,
+                        language=user.language or "ru",
                     )
                 )
 

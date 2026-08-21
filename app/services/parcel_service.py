@@ -128,9 +128,9 @@ class ParcelService:
         )
         changed = []
         for parcel in parcels:
-            if new_status == ParcelStatus.IN_TRANSIT:
-                apply_delivery_dates(parcel, sent_at=sent_at, expected_at=expected_at)
-            if await self.change_status(parcel, new_status, changed_by):
+            date_changes = apply_delivery_dates(parcel, sent_at=sent_at, expected_at=expected_at)
+            status_changed = await self.change_status(parcel, new_status, changed_by)
+            if status_changed or date_changes.any:
                 changed.append(parcel)
         import_record.selected_status = new_status
         if sent_at is not None:

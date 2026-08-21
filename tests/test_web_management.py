@@ -126,3 +126,116 @@ async def test_web_admin_can_change_status_for_whole_import(web_management_clien
     assert response.json()["updated"] == 2
     assert response.json()["notifications"] == 2
     assert bot.send_message.await_count == 2
+
+
+async def test_web_admin_can_delegate_and_revoke_admin_access(web_management_client):
+    client, _, bot = web_management_client
+    created = await client.post(
+        "/api/clients",
+        json={
+            "client_code": "J-9001",
+            "full_name": "Delegated Admin",
+            "phone": "+996555900001",
+            "city": "Bishkek",
+            "telegram_id": 9001,
+        },
+    )
+    client_id = created.json()["id"]
+
+    granted = await client.post(f"/api/clients/{client_id}/admin", json={"is_admin": True})
+    assert granted.status_code == 200
+    assert granted.json()["is_admin"] is True
+    bot.set_chat_menu_button.assert_awaited()
+
+    client.cookies.set(SESSION_COOKIE, create_admin_session(9001, "123456:test-token"))
+    assert (await client.get("/api/meta")).status_code == 200
+
+    client.cookies.set(SESSION_COOKIE, create_admin_session(777, "123456:test-token"))
+    revoked = await client.post(f"/api/clients/{client_id}/admin", json={"is_admin": False})
+    assert revoked.status_code == 200
+    assert revoked.json()["is_admin"] is False
+
+    client.cookies.set(SESSION_COOKIE, create_admin_session(9001, "123456:test-token"))
+    assert (await client.get("/api/meta")).status_code == 403
+
+
+async def test_web_admin_can_edit_parcel_owner_dates_and_delete(web_management_client):
+    client, session_factory, _ = web_management_client
+    async with session_factory() as session:
+        first_user = User(
+            client_code="J-1001",
+            full_name="First Client",
+            phone="+996555100001",
+            telegram_id=1001,
+        )
+        second_user = User(
+            client_code="J-1002",
+            full_name="Second Client",
+            phone="+996555100002",
+            telegram_id=1002,
+        )
+        session.add_all([first_user, second_user])
+        await session.flush()
+        parcel = Parcel(
+            tracking_number="EDITABLE0001",
+            client_code=first_user.client_code,
+            user_id=first_user.id,
+            status=ParcelStatus.CHINA_WAREHOUSE,
+        )
+        session.add(parcel)
+        await session.commit()
+        parcel_id = parcel.id
+
+    updated = await client.patch(
+        f"/api/parcels/{parcel_id}",
+        json={
+            "client_code": "J-1002",
+            "status": "IN_TRANSIT",
+            "sent_date": "2026-08-21",
+            "expected_date": "2026-09-05",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["parcel"]["client_code"] == "J-1002"
+    assert updated.json()["parcel"]["sent_date"] == "2026-08-21"
+    assert updated.json()["parcel"]["expected_date"] == "2026-09-05"
+
+    deleted = await client.delete(f"/api/parcels/{parcel_id}")
+    assert deleted.status_code == 200
+    async with session_factory() as session:
+        assert await session.get(Parcel, parcel_id) is None
+
+
+async def test_web_admin_can_assign_batch_sent_and_expected_dates(web_management_client):
+    client, session_factory, _ = web_management_client
+    async with session_factory() as session:
+        batch = Import(
+            filename="dated-batch.xlsx",
+            selected_status=ParcelStatus.CHINA_WAREHOUSE,
+            uploaded_by=777,
+        )
+        session.add(batch)
+        await session.flush()
+        session.add(
+            Parcel(
+                tracking_number="DATEDBATCH001",
+                client_code="J-7001",
+                import_id=batch.id,
+                status=ParcelStatus.CHINA_WAREHOUSE,
+            )
+        )
+        await session.commit()
+        batch_id = batch.id
+
+    response = await client.patch(
+        f"/api/imports/{batch_id}/status",
+        json={
+            "status": "IN_TRANSIT",
+            "sent_date": "2026-08-22",
+            "expected_date": "2026-09-10",
+            "transit_days": 12,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["sent_date"] == "2026-08-22"
+    assert response.json()["expected_date"] == "2026-09-10"

@@ -82,12 +82,13 @@ async def test_active_and_delivered_parcels_are_separated(session):
 
 
 async def test_new_client_registration_requires_only_full_name(session):
-    user = await UserService(session).register(123456, "Райымов Элдар")
+    user = await UserService(session).register(123456, "Райымов Элдар", language="en")
     await session.commit()
 
     assert user.client_code == "J-0001"
     assert user.full_name == "Райымов Элдар"
     assert user.phone == ""
+    assert user.language == "en"
 
 
 async def test_one_telegram_cannot_link_two_codes(session):
