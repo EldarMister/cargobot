@@ -258,6 +258,74 @@ async def test_web_admin_can_assign_batch_sent_and_expected_dates(web_management
     assert response.json()["expected_date"] == "2026-09-10"
 
 
+async def test_web_admin_can_delete_batch_without_deleting_shipments(web_management_client):
+    client, session_factory, _ = web_management_client
+    async with session_factory() as session:
+        batch = Import(
+            filename="deletable-batch.xlsx",
+            selected_status=ParcelStatus.CHINA_WAREHOUSE,
+            uploaded_by=777,
+        )
+        session.add(batch)
+        await session.flush()
+        parcel = Parcel(
+            tracking_number="DETACHED0001",
+            client_code="J-8001",
+            import_id=batch.id,
+            status=ParcelStatus.CHINA_WAREHOUSE,
+        )
+        session.add(parcel)
+        await session.commit()
+        batch_id = batch.id
+        parcel_id = parcel.id
+
+    response = await client.delete(f"/api/imports/{batch_id}")
+
+    assert response.status_code == 200
+    assert response.json()["detached_parcels"] == 1
+    assert response.json()["deleted_parcels"] == 0
+    async with session_factory() as session:
+        assert await session.get(Import, batch_id) is None
+        remaining_parcel = await session.get(Parcel, parcel_id)
+        assert remaining_parcel is not None
+        assert remaining_parcel.import_id is None
+
+
+async def test_web_admin_can_delete_batch_together_with_shipments(web_management_client):
+    client, session_factory, _ = web_management_client
+    async with session_factory() as session:
+        batch = Import(
+            filename="delete-with-shipments.xlsx",
+            selected_status=ParcelStatus.CHINA_WAREHOUSE,
+            uploaded_by=777,
+        )
+        session.add(batch)
+        await session.flush()
+        parcels = [
+            Parcel(
+                tracking_number=f"DELETEALL000{index}",
+                client_code=f"J-810{index}",
+                import_id=batch.id,
+                status=ParcelStatus.CHINA_WAREHOUSE,
+            )
+            for index in (1, 2)
+        ]
+        session.add_all(parcels)
+        await session.commit()
+        batch_id = batch.id
+        parcel_ids = [parcel.id for parcel in parcels]
+
+    response = await client.delete(f"/api/imports/{batch_id}?delete_parcels=true")
+
+    assert response.status_code == 200
+    assert response.json()["detached_parcels"] == 0
+    assert response.json()["deleted_parcels"] == 2
+    async with session_factory() as session:
+        assert await session.get(Import, batch_id) is None
+        remaining = [await session.get(Parcel, parcel_id) for parcel_id in parcel_ids]
+        assert remaining == [None, None]
+
+
 async def test_web_excel_update_reuses_batch_and_rejects_exact_copy(web_management_client):
     client, session_factory, _ = web_management_client
     original = _excel_bytes([("WEBIMPORT0001", "J-1001"), ("WEBIMPORT0002", "J-1002")])

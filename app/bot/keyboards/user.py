@@ -5,7 +5,9 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-from app.i18n import LANGUAGE_NAMES, SUPPORTED_LANGUAGES, t
+from app.i18n import LANGUAGE_NAMES, t
+
+USER_SELECTABLE_LANGUAGES = ("ru", "en")
 
 
 def language_keyboard(context: str = "start") -> InlineKeyboardMarkup:
@@ -16,7 +18,7 @@ def language_keyboard(context: str = "start") -> InlineKeyboardMarkup:
                     text=LANGUAGE_NAMES[language],
                     callback_data=f"language:{context}:{language}",
                 )
-                for language in SUPPORTED_LANGUAGES
+                for language in USER_SELECTABLE_LANGUAGES
             ]
         ]
     )

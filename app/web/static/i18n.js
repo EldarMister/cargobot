@@ -82,7 +82,13 @@
       "Найдена похожая партия №{id}: совпало {overlap} из {total} трек-кодов. Будет обновлена эта партия.": "Similar batch #{id} found: {overlap} of {total} tracking numbers match. This batch will be updated.",
       "Похожая партия не найдена. Будет создана новая партия.": "No similar batch was found. A new batch will be created.",
       "Этот файл уже был загружен": "This file has already been uploaded", "Партия обновлена": "Batch updated",
-      "Новая партия создана": "New batch created", "Новых": "New", "обновлено": "updated"
+      "Новая партия создана": "New batch created", "Новых": "New", "обновлено": "updated",
+      "Язык интерфейса": "Interface language", "Удалить партию": "Delete batch", "Партия удалена": "Batch deleted",
+      "УДАЛЕНИЕ ПАРТИИ": "DELETE BATCH", "Что удалить": "What to delete",
+      "Только карточку партии и историю": "Batch record and history only", "Партию вместе с товарами": "Batch and shipments",
+      "Товары останутся в базе без привязки к партии.": "Shipments will remain in the database without a batch.",
+      "Партия, история и все её товары будут удалены без возможности восстановления.": "The batch, its history, and all its shipments will be permanently deleted.",
+      "Подтвердить удаление": "Confirm deletion"
     },
     zh: {
       "Статистика": "数据概览", "Товары": "货物", "Клиенты": "客户", "Партии и Excel": "批次与 Excel",
@@ -147,7 +153,13 @@
       "Найдена похожая партия №{id}: совпало {overlap} из {total} трек-кодов. Будет обновлена эта партия.": "发现相似批次 #{id}：{total} 个运单号中有 {overlap} 个一致。系统将更新该批次。",
       "Похожая партия не найдена. Будет создана новая партия.": "未找到相似批次，将创建新批次。",
       "Этот файл уже был загружен": "该文件已上传", "Партия обновлена": "批次已更新",
-      "Новая партия создана": "已创建新批次", "Новых": "新增", "обновлено": "更新"
+      "Новая партия создана": "已创建新批次", "Новых": "新增", "обновлено": "更新",
+      "Язык интерфейса": "界面语言", "Удалить партию": "删除批次", "Партия удалена": "批次已删除",
+      "УДАЛЕНИЕ ПАРТИИ": "删除批次", "Что удалить": "请选择删除内容",
+      "Только карточку партии и историю": "仅删除批次记录及历史", "Партию вместе с товарами": "删除批次及其中货物",
+      "Товары останутся в базе без привязки к партии.": "货物将保留在数据库中，但不再关联任何批次。",
+      "Партия, история и все её товары будут удалены без возможности восстановления.": "该批次、历史记录及其中全部货物将被永久删除，无法恢复。",
+      "Подтвердить удаление": "确认删除"
     }
   };
 
@@ -204,8 +216,9 @@
     document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => { element.placeholder = translate(element.dataset.i18nPlaceholder); });
     document.querySelectorAll("[data-i18n-aria]").forEach((element) => { element.setAttribute("aria-label", translate(element.dataset.i18nAria)); });
     document.documentElement.lang = language === "zh" ? "zh-CN" : language;
-    const selector = document.querySelector("#language-select");
-    if (selector) selector.value = language;
+    document.querySelectorAll("[data-language]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.language === language));
+    });
   }
 
   function setLanguage(nextLanguage) {

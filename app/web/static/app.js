@@ -627,6 +627,60 @@ $("#delete-parcel").addEventListener("click", async () => {
   } catch (error) { toast(error.message, true); }
 });
 
+function updateBatchDeleteWarning() {
+  const deleteProducts = $("#batch-delete-mode").value === "all";
+  $("#batch-delete-warning").textContent = deleteProducts
+    ? tr("Партия, история и все её товары будут удалены без возможности восстановления.")
+    : tr("Товары останутся в базе без привязки к партии.");
+}
+
+$("#delete-import").addEventListener("click", () => {
+  const importRecord = state.selectedImport;
+  if (!importRecord) return;
+  $("#batch-delete-title").textContent = `${tr("Удалить партию")} №${importRecord.id}`;
+  $("#batch-delete-mode").value = "batch";
+  updateBatchDeleteWarning();
+  closeDialog("batch-status-sheet");
+  $("#batch-delete-sheet").showModal();
+});
+
+$("#batch-delete-mode").addEventListener("change", updateBatchDeleteWarning);
+
+$("#batch-delete-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const importRecord = state.selectedImport;
+  if (!importRecord) return;
+  const deleteProducts = $("#batch-delete-mode").value === "all";
+  const button = event.target.querySelector('[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = state.demo
+      ? {
+          detached_parcels: deleteProducts ? 0 : importRecord.created_rows + importRecord.updated_rows,
+          deleted_parcels: deleteProducts ? importRecord.created_rows + importRecord.updated_rows : 0,
+        }
+      : await api(`/api/imports/${importRecord.id}?delete_parcels=${deleteProducts}`, { method: "DELETE" });
+    state.imports = state.imports.filter((item) => item.id !== importRecord.id);
+    state.selectedImport = null;
+    closeDialog("batch-delete-sheet");
+    renderImports();
+    const message = deleteProducts
+      ? i18n.language === "en"
+        ? `Batch and ${result.deleted_parcels} shipments deleted.`
+        : i18n.language === "zh"
+          ? `批次及 ${result.deleted_parcels} 件货物已删除。`
+          : `Партия и товары удалены: ${result.deleted_parcels}.`
+      : i18n.language === "en"
+        ? `Batch deleted. Shipments detached: ${result.detached_parcels}.`
+        : i18n.language === "zh"
+          ? `批次已删除，已解除关联的货物：${result.detached_parcels} 件。`
+          : `Партия удалена. Отвязано товаров: ${result.detached_parcels}.`;
+    toast(message);
+    if (!state.demo) await Promise.all([loadImports(), loadParcels(), loadDashboard()]);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
 $("#batch-status-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.selectedImport) return;
@@ -914,10 +968,10 @@ $("#client-search").addEventListener("input", () => {
 $("#refresh-parcels").addEventListener("click", loadParcels);
 $("#refresh-clients").addEventListener("click", loadClients);
 $("#retry-auth").addEventListener("click", authenticate);
-$("#language-select").addEventListener("change", (event) => {
-  i18n.setLanguage(event.target.value);
+$$('[data-language]').forEach((button) => button.addEventListener("click", () => {
+  i18n.setLanguage(button.dataset.language);
   refreshLanguage();
-});
+}));
 
 const demo = {
   statuses: [

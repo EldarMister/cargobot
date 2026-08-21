@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
-SUPPORTED_LANGUAGES: Final[tuple[str, ...]] = ("ru", "en", "zh")
+SUPPORTED_LANGUAGES: Final[tuple[str, ...]] = ("ru", "en")
 DEFAULT_LANGUAGE: Final[str] = "ru"
 LANGUAGE_NAMES: Final[dict[str, str]] = {
     "ru": "🇷🇺 Русский",

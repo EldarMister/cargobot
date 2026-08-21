@@ -8,15 +8,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.user import language_keyboard, main_menu_keyboard, start_keyboard
-from app.db.repositories import SettingRepository, UserRepository
-from app.i18n import (
-    SUPPORTED_LANGUAGES,
-    language_for_text,
-    normalize_language,
-    t,
-    text_variants,
+from app.bot.keyboards.user import (
+    USER_SELECTABLE_LANGUAGES,
+    language_keyboard,
+    main_menu_keyboard,
+    start_keyboard,
 )
+from app.db.repositories import SettingRepository, UserRepository
+from app.i18n import language_for_text, normalize_language, t, text_variants
 
 router = Router(name="user_start")
 
@@ -67,7 +66,7 @@ async def start(message: Message, state: FSMContext, session: AsyncSession) -> N
         await _send_start(message, session, normalize_language(user.language))
         return
     await message.answer(
-        "Tilni tanlang · Выберите язык · Choose your language · 请选择语言",
+        "Выберите язык · Choose your language",
         reply_markup=language_keyboard("start"),
     )
 
@@ -79,7 +78,7 @@ async def select_language(
     session: AsyncSession,
 ) -> None:
     _, context, language = callback.data.split(":", 2)
-    if language not in SUPPORTED_LANGUAGES or not callback.message:
+    if language not in USER_SELECTABLE_LANGUAGES or not callback.message:
         await callback.answer()
         return
     user = await UserRepository(session).by_telegram_id(callback.from_user.id)
@@ -103,7 +102,7 @@ async def select_language(
 @router.message(F.text.in_(text_variants("button.language")))
 async def change_language(message: Message) -> None:
     await message.answer(
-        "Выберите язык · Choose your language · 请选择语言",
+        "Выберите язык · Choose your language",
         reply_markup=language_keyboard("change"),
     )
 

@@ -24,7 +24,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
@@ -808,6 +808,37 @@ def create_web_app(
                 "skipped": record.skipped_rows,
                 "notifications": delivered,
                 "is_revision": outcome.is_revision,
+            }
+
+    @app.delete("/api/imports/{import_id}")
+    async def delete_import(
+        import_id: int,
+        delete_parcels: bool = False,
+        _: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            record = await session.get(Import, import_id)
+            if not record:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена")
+            parcel_count = int(
+                await session.scalar(
+                    select(func.count(Parcel.id)).where(Parcel.import_id == import_id)
+                )
+                or 0
+            )
+            if delete_parcels:
+                await session.execute(delete(Parcel).where(Parcel.import_id == import_id))
+            else:
+                await session.execute(
+                    update(Parcel).where(Parcel.import_id == import_id).values(import_id=None)
+                )
+            await session.delete(record)
+            await session.commit()
+            return {
+                "ok": True,
+                "id": import_id,
+                "detached_parcels": 0 if delete_parcels else parcel_count,
+                "deleted_parcels": parcel_count if delete_parcels else 0,
             }
 
     @app.post("/api/imports/{import_id}/arrived")
