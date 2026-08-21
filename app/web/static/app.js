@@ -12,6 +12,7 @@ const state = {
   defaultTransitDays: 12,
   parcels: [],
   clients: [],
+  clientParcels: [],
   imports: [],
   settings: null,
   selectedParcel: null,
@@ -168,7 +169,7 @@ function renderDashboard(data) {
 
   const recent = state.parcels.slice(0, 5);
   $("#recent-parcels").innerHTML = recent.length
-    ? recent.map((parcel) => parcelRow(parcel, false)).join("")
+    ? recent.map((parcel) => parcelRow(parcel, true)).join("")
     : empty(tr("Товаров пока нет"));
   refreshIcons();
 }
@@ -287,11 +288,21 @@ function openBatchStatus(importId) {
 }
 
 function renderClientParcels(client, parcels) {
+  state.clientParcels = parcels;
   $("#client-parcels-title").textContent = `${client.full_name} · ${client.client_code}`;
   $("#client-parcels-list").innerHTML = parcels.length
-    ? parcels.map((parcel) => parcelRow(parcel, false)).join("")
+    ? parcels.map((parcel) => parcelRow(parcel, true)).join("")
     : empty(tr("У клиента пока нет товаров"));
   refreshIcons();
+}
+
+async function refreshClientParcels() {
+  const client = state.selectedClient;
+  if (!client) return;
+  const parcels = state.demo
+    ? demo.parcels.filter((parcel) => parcel.client_code === client.client_code)
+    : await api(`/api/clients/${client.id}/parcels`);
+  renderClientParcels(client, parcels);
 }
 
 function renderSettings(values) {
@@ -520,7 +531,10 @@ document.addEventListener("click", async (event) => {
 
   const edit = event.target.closest("[data-edit-parcel]");
   if (edit) {
-    state.selectedParcel = state.parcels.find((parcel) => parcel.id === Number(edit.dataset.editParcel));
+    const parcelId = Number(edit.dataset.editParcel);
+    state.selectedParcel = state.parcels.find((parcel) => parcel.id === parcelId)
+      || state.clientParcels.find((parcel) => parcel.id === parcelId);
+    if (!state.selectedParcel) return;
     $("#status-track").textContent = `${state.selectedParcel.tracking_number} · ${state.selectedParcel.client_code}`;
     $("#parcel-client-code").value = state.selectedParcel.client_code;
     $("#status-select").value = state.selectedParcel.status;
@@ -592,6 +606,7 @@ $("#parcel-form").addEventListener("submit", async (event) => {
     });
     closeDialog("status-sheet");
     renderParcels();
+    if ($("#client-parcels-sheet").open) await refreshClientParcels();
     button.disabled = false;
     return toast(tr("Демо: статус обновлён"));
   }
@@ -603,7 +618,9 @@ $("#parcel-form").addEventListener("submit", async (event) => {
     Object.assign(selectedParcel, result.parcel);
     closeDialog("status-sheet");
     toast(tr(result.notified ? "Товар обновлён, клиент уведомлён" : "Товар обновлён"));
-    await Promise.all([loadParcels(), loadDashboard()]);
+    await loadParcels();
+    await Promise.all([loadDashboard(), loadClients()]);
+    if ($("#client-parcels-sheet").open) await refreshClientParcels();
   } catch (error) { toast(error.message, true); }
   finally { button.disabled = false; }
 });
@@ -623,7 +640,8 @@ $("#delete-parcel").addEventListener("click", async () => {
     closeDialog("status-sheet");
     renderParcels();
     toast(tr("Товар удалён"));
-    await loadDashboard();
+    await Promise.all([loadDashboard(), loadClients()]);
+    if ($("#client-parcels-sheet").open) await refreshClientParcels();
   } catch (error) { toast(error.message, true); }
 });
 
@@ -725,10 +743,7 @@ $("#client-parcels-action").addEventListener("click", async () => {
   if (!client) return;
   closeDialog("client-detail-sheet");
   try {
-    const parcels = state.demo
-      ? demo.parcels.filter((parcel) => parcel.client_code === client.client_code)
-      : await api(`/api/clients/${client.id}/parcels`);
-    renderClientParcels(client, parcels);
+    await refreshClientParcels();
     $("#client-parcels-sheet").showModal();
   } catch (error) { toast(error.message, true); }
 });
