@@ -198,7 +198,7 @@ function renderClients() {
 
 function importRow(item) {
   return `
-    <article class="table-row import-row">
+    <article class="table-row import-row" data-edit-import="${item.id}" role="button" tabindex="0" aria-label="Открыть партию №${item.id}">
       <div><div class="import-name"><span class="excel-mark"><i data-lucide="file-spreadsheet" aria-hidden="true"></i></span><strong>${escapeHtml(item.filename)}</strong></div><small>Партия №${item.id} · ${escapeHtml(statusText(item.status_label))}</small></div>
       <div>${item.sent_at ? `<span>${escapeHtml(item.sent_at)}</span>` : "—"}<small>${item.expected_at ? `Ожидается ${escapeHtml(item.expected_at)}` : "Без расчётной даты"}</small></div>
       <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div><i data-lucide="chevron-right" class="row-chevron" aria-hidden="true"></i>
@@ -257,7 +257,12 @@ function openBatchStatus(importId) {
   state.selectedImport = state.imports.find((item) => item.id === Number(importId));
   if (!state.selectedImport) return;
   $("#batch-status-title").textContent = `Партия №${state.selectedImport.id}`;
-  $("#batch-status-file").textContent = state.selectedImport.filename;
+  $("#batch-status-detail").innerHTML = `
+    <div><span>Файл</span><b>${escapeHtml(state.selectedImport.filename)}</b></div>
+    <div><span>Текущий статус</span><b>${escapeHtml(statusText(state.selectedImport.status_label))}</b></div>
+    <div><span>Дата выезда</span><b>${escapeHtml(state.selectedImport.sent_at || "Не указана")}</b></div>
+    <div><span>Ожидаемая дата</span><b>${escapeHtml(state.selectedImport.expected_at || "Не рассчитана")}</b></div>
+    <div><span>Товары</span><b>+${state.selectedImport.created_rows} новых · ${state.selectedImport.updated_rows} обновлено</b></div>`;
   $("#batch-status-select").value = state.selectedImport.status;
   $("#batch-sent-date").value = "";
   $("#batch-transit-days").value = state.defaultTransitDays;
@@ -410,6 +415,14 @@ function connectEvents() {
       if (state.currentView === "settings") await loadSettings();
     }, 250);
   });
+  events.onopen = () => {
+    $("#live-pill").classList.remove("offline");
+    $("#live-pill b").textContent = "Онлайн";
+  };
+  events.onerror = () => {
+    $("#live-pill").classList.add("offline");
+    $("#live-pill b").textContent = "Нет связи";
+  };
 }
 
 async function authenticate() {
@@ -498,6 +511,13 @@ $("#menu-toggle").addEventListener("click", () => {
 });
 $("#drawer-backdrop").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+document.addEventListener("keydown", (event) => {
+  const importRowElement = event.target.closest?.(".import-row[data-edit-import]");
+  if (importRowElement && event.target === importRowElement && ["Enter", " "].includes(event.key)) {
+    event.preventDefault();
+    openBatchStatus(importRowElement.dataset.editImport);
+  }
+});
 
 $("#parcel-status-filter").addEventListener("change", async (event) => {
   state.statusFilter = event.target.value;
