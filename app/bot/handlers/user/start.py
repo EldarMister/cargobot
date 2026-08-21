@@ -1,7 +1,7 @@
 from contextlib import suppress
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -14,6 +14,8 @@ from app.bot.keyboards.user import (
     main_menu_keyboard,
     start_keyboard,
 )
+from app.bot.menu_button import set_admin_menu_button
+from app.core.config import get_settings
 from app.db.repositories import SettingRepository, UserRepository
 from app.i18n import language_for_text, normalize_language, t, text_variants
 
@@ -59,9 +61,13 @@ async def _send_start(
 
 
 @router.message(CommandStart())
-async def start(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def start(message: Message, state: FSMContext, session: AsyncSession, bot: Bot) -> None:
     await state.clear()
     user = await UserRepository(session).by_telegram_id(message.from_user.id)
+    settings = get_settings()
+    if message.from_user.id in settings.admin_id_set or (user and user.is_admin):
+        with suppress(TelegramAPIError):
+            await set_admin_menu_button(bot, message.from_user.id, settings)
     if user and user.language:
         await _send_start(message, session, normalize_language(user.language))
         return

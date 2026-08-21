@@ -8,12 +8,15 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import MenuButtonCommands, MenuButtonWebApp, WebAppInfo
+from aiogram.types import MenuButtonCommands
+from sqlalchemy import select
 
 from app.bot.handlers import register_routers
+from app.bot.menu_button import set_admin_menu_button
 from app.bot.middlewares import DatabaseMiddleware
 from app.core.config import Settings, get_settings
 from app.core.logging import setup_logging
+from app.db.models import User
 from app.db.session import create_engine_and_sessionmaker
 from app.services.delivery_reminder_service import delivery_reminder_loop
 from app.web.app import create_web_app
@@ -28,23 +31,29 @@ class EmbeddedUvicornServer(uvicorn.Server):
         yield
 
 
-async def configure_menu_buttons(bot: Bot, settings: Settings) -> None:
+async def configure_menu_buttons(bot: Bot, settings: Settings, session_factory=None) -> None:
     """Keep the default command menu for clients and expose the Mini App to admins."""
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
-    web_url = settings.public_web_url
-    if not web_url:
+    if not settings.public_web_url:
         logger.warning(
             "Admin Mini App menu button is disabled: WEB_APP_URL and RAILWAY_PUBLIC_DOMAIN are empty"
         )
         return
 
-    menu_button = MenuButtonWebApp(
-        text="Админ-панель",
-        web_app=WebAppInfo(url=f"{web_url}/panel"),
-    )
-    for admin_id in sorted(settings.admin_id_set):
+    admin_ids = set(settings.admin_id_set)
+    if session_factory is not None:
+        async with session_factory() as session:
+            database_admin_ids = await session.scalars(
+                select(User.telegram_id).where(
+                    User.telegram_id.is_not(None),
+                    User.is_admin.is_(True),
+                )
+            )
+            admin_ids.update(database_admin_ids)
+
+    for admin_id in sorted(admin_ids):
         try:
-            await bot.set_chat_menu_button(chat_id=admin_id, menu_button=menu_button)
+            await set_admin_menu_button(bot, admin_id, settings)
         except TelegramAPIError:
             logger.exception("Could not configure Mini App menu button for admin %s", admin_id)
 
@@ -79,7 +88,7 @@ async def main() -> None:
     logger.info("Starting BCL Express bot")
     try:
         await bot.delete_webhook(drop_pending_updates=False)
-        await configure_menu_buttons(bot, settings)
+        await configure_menu_buttons(bot, settings, session_factory)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         web_server.should_exit = True
