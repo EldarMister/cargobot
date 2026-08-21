@@ -1,15 +1,32 @@
+from io import BytesIO
 from unittest.mock import AsyncMock
 
+import openpyxl
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
 from app.core.enums import ParcelStatus
 from app.db.base import Base
-from app.db.models import Import, Parcel, User
+from app.db.models import Import, ImportRevision, Parcel, User
 from app.web.app import SESSION_COOKIE, create_web_app
 from app.web.auth import create_admin_session
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _excel_bytes(rows: list[tuple[str, str]]) -> bytes:
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["Трек-код", "Код клиента"])
+    for tracking_number, client_code in rows:
+        sheet.append([tracking_number, client_code])
+    stream = BytesIO()
+    workbook.save(stream)
+    workbook.close()
+    return stream.getvalue()
 
 
 @pytest.fixture
@@ -239,3 +256,53 @@ async def test_web_admin_can_assign_batch_sent_and_expected_dates(web_management
     assert response.status_code == 200
     assert response.json()["sent_date"] == "2026-08-22"
     assert response.json()["expected_date"] == "2026-09-10"
+
+
+async def test_web_excel_update_reuses_batch_and_rejects_exact_copy(web_management_client):
+    client, session_factory, _ = web_management_client
+    original = _excel_bytes([("WEBIMPORT0001", "J-1001"), ("WEBIMPORT0002", "J-1002")])
+    changed = _excel_bytes(
+        [
+            ("WEBIMPORT0001", "J-1001"),
+            ("WEBIMPORT0002", "J-1002"),
+            ("WEBIMPORT0003", "J-1003"),
+        ]
+    )
+
+    created = await client.post(
+        "/api/imports",
+        data={"selected_status": "CHINA_WAREHOUSE", "target_import_id": ""},
+        files={"file": ("cargo.xlsx", original, XLSX_MIME)},
+    )
+    assert created.status_code == 200
+    batch_id = created.json()["id"]
+    assert created.json()["is_revision"] is False
+
+    analyzed = await client.post(
+        "/api/imports/analyze",
+        files={"file": ("cargo.xlsx", changed, XLSX_MIME)},
+    )
+    assert analyzed.status_code == 200
+    assert analyzed.json()["suggestion"]["import_id"] == batch_id
+    assert analyzed.json()["suggestion"]["overlap"] == 2
+
+    updated = await client.post(
+        "/api/imports",
+        data={"selected_status": "CHINA_WAREHOUSE", "target_import_id": str(batch_id)},
+        files={"file": ("cargo.xlsx", changed, XLSX_MIME)},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["id"] == batch_id
+    assert updated.json()["is_revision"] is True
+
+    duplicate = await client.post(
+        "/api/imports",
+        data={"selected_status": "CHINA_WAREHOUSE", "target_import_id": str(batch_id)},
+        files={"file": ("cargo-copy.xlsx", changed, XLSX_MIME)},
+    )
+    assert duplicate.status_code == 409
+
+    imports = await client.get("/api/imports")
+    assert len(imports.json()) == 1
+    async with session_factory() as session:
+        assert await session.scalar(select(func.count(ImportRevision.id))) == 2

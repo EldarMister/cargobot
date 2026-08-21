@@ -186,6 +186,9 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 .muted { color:var(--muted); }
 .upload-zone { min-height:98px; display:grid; place-items:center; gap:5px; margin:16px 0; padding:15px; border:1.5px dashed #91bdff; border-radius:12px; color:var(--blue); background:var(--blue-soft); text-align:center; }
 .upload-zone span { color:var(--muted); font-size:11px; }
+.import-analysis { margin:8px 0 14px; padding:10px 12px; border-radius:10px; background:var(--blue-soft); color:var(--muted); font-size:12px; line-height:1.45; }
+.import-analysis.warning { background:#fff3db; color:#8b5b00; }
+.import-analysis.success { background:#eaf8f0; color:#267347; }
 
 .picker-sheet { width:min(calc(100% - 36px),420px); max-height:min(72vh,620px); margin:auto; border-radius:17px; box-shadow:0 22px 70px rgba(15,23,42,.28); }
 .picker-sheet form { padding:0; }

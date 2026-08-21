@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import func, select
 
 from app.core.enums import ParcelStatus
-from app.db.models import Import, Parcel, ParcelStatusHistory, User
+from app.db.models import Import, ImportRevision, Parcel, ParcelStatusHistory, User
 from app.services.excel_importer import ExcelParseResult, ParsedExcelRow
-from app.services.import_service import ImportService
+from app.services.import_service import DuplicateImportError, ImportBatchConflictError, ImportService
 from app.services.notification_service import notification_text
 from app.services.parcel_service import ParcelService
 
@@ -17,18 +18,74 @@ def parsed(tracking="YT7592444294461", code="J-0329"):
 async def test_repeat_import_updates_instead_of_duplicate(session):
     first = await ImportService(session).process(parsed(), "first.xlsx", ParcelStatus.CHINA_WAREHOUSE, 100)
     await session.commit()
+    first_id = first.import_record.id
+    first_created_rows = first.import_record.created_rows
     second = await ImportService(session).process(parsed(), "second.xlsx", ParcelStatus.IN_TRANSIT, 100)
     await session.commit()
 
-    assert first.import_record.created_rows == 1
+    assert first_created_rows == 1
     assert second.import_record.created_rows == 0
     assert second.import_record.updated_rows == 1
+    assert second.import_record.id == first_id
+    assert second.is_revision is True
+    assert await session.scalar(select(func.count(Import.id))) == 1
     assert await session.scalar(select(func.count(Parcel.id))) == 1
     assert await session.scalar(select(func.count(ParcelStatusHistory.id))) == 2
     parcel = await session.scalar(select(Parcel))
     assert parcel.status == ParcelStatus.IN_TRANSIT
     assert parcel.sent_at is None
     assert parcel.expected_at is None
+
+
+async def test_exact_file_is_rejected_and_revisions_are_recorded(session):
+    service = ImportService(session)
+    first_hash = "a" * 64
+    second_hash = "b" * 64
+    first = await service.process(
+        parsed(),
+        "cargo.xlsx",
+        ParcelStatus.CHINA_WAREHOUSE,
+        100,
+        file_hash=first_hash,
+    )
+    await session.commit()
+
+    updated = await service.process(
+        parsed(),
+        "cargo-edited.xlsx",
+        ParcelStatus.CHINA_WAREHOUSE,
+        100,
+        file_hash=second_hash,
+    )
+    await session.commit()
+
+    assert updated.import_record.id == first.import_record.id
+    assert await session.scalar(select(func.count(ImportRevision.id))) == 2
+
+    with pytest.raises(DuplicateImportError) as error:
+        await service.process(
+            parsed(),
+            "cargo-copy.xlsx",
+            ParcelStatus.CHINA_WAREHOUSE,
+            100,
+            file_hash=first_hash,
+        )
+    assert error.value.import_id == first.import_record.id
+
+
+async def test_explicit_new_batch_does_not_steal_existing_tracking(session):
+    service = ImportService(session)
+    await service.process(parsed(), "cargo.xlsx", ParcelStatus.CHINA_WAREHOUSE, 100)
+    await session.commit()
+
+    with pytest.raises(ImportBatchConflictError):
+        await service.process(
+            parsed(),
+            "another-batch.xlsx",
+            ParcelStatus.IN_TRANSIT,
+            100,
+            auto_match=False,
+        )
 
 
 async def test_same_status_does_not_notify_twice(session):

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import tempfile
 from datetime import UTC, datetime, timedelta
@@ -31,10 +32,15 @@ from sqlalchemy.orm import selectinload
 from app.core.config import Settings
 from app.core.dates import as_local, calculate_expected_at, local_timezone
 from app.core.enums import ParcelStatus
-from app.db.models import AppSetting, Import, Parcel, User
+from app.db.models import AppSetting, Import, ImportRevision, Parcel, User
 from app.db.repositories import SettingRepository, UserRepository
 from app.services.excel_importer import ExcelImporter
-from app.services.import_service import ImportService
+from app.services.import_service import (
+    DuplicateImportError,
+    ImportBatchConflictError,
+    ImportNotFoundError,
+    ImportService,
+)
 from app.services.normalization import (
     is_valid_client_code,
     normalize_client_code,
@@ -668,12 +674,62 @@ def create_web_app(
                 for item in rows
             ]
 
+    @app.post("/api/imports/analyze")
+    async def analyze_import(
+        file: Annotated[UploadFile, File()],
+        _: int = Depends(require_admin),
+    ) -> dict:
+        filename = Path(file.filename or "import").name
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".xls", ".xlsx"}:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужен файл .xls или .xlsx")
+        content = await file.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Файл больше 20 МБ")
+        file_hash = hashlib.sha256(content).hexdigest()
+        async with session_factory() as session:
+            duplicate = await session.execute(
+                select(Import.id, Import.filename)
+                .join(ImportRevision, ImportRevision.import_id == Import.id)
+                .where(ImportRevision.file_hash == file_hash)
+            )
+            duplicate_row = duplicate.first()
+            if duplicate_row:
+                return {
+                    "duplicate": {
+                        "import_id": duplicate_row.id,
+                        "filename": duplicate_row.filename,
+                    },
+                    "suggestion": None,
+                }
+            with tempfile.TemporaryDirectory(prefix="bcl_web_analyze_") as temp_dir:
+                path = Path(temp_dir) / f"upload{suffix}"
+                path.write_bytes(content)
+                parsed = await asyncio.to_thread(ExcelImporter().parse, path)
+            suggestion = await ImportService(session).find_similar_import(parsed, filename)
+            return {
+                "duplicate": None,
+                "suggestion": (
+                    {
+                        "import_id": suggestion.import_id,
+                        "filename": suggestion.filename,
+                        "overlap": suggestion.overlap,
+                        "uploaded_rows": suggestion.uploaded_rows,
+                        "batch_rows": suggestion.batch_rows,
+                        "similarity": round(suggestion.similarity, 4),
+                    }
+                    if suggestion
+                    else None
+                ),
+            }
+
     @app.post("/api/imports")
     async def upload_import(
         file: Annotated[UploadFile, File()],
         selected_status: Annotated[ParcelStatus, Form()],
         sent_date: Annotated[str | None, Form()] = None,
         transit_days: Annotated[int, Form()] = 12,
+        target_import_id: Annotated[int | None, Form()] = None,
         admin_id: int = Depends(require_admin),
     ) -> dict:
         filename = Path(file.filename or "import").name
@@ -683,6 +739,7 @@ def create_web_app(
         content = await file.read(MAX_UPLOAD_BYTES + 1)
         if len(content) > MAX_UPLOAD_BYTES:
             raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Файл больше 20 МБ")
+        file_hash = hashlib.sha256(content).hexdigest()
         sent_at = _parse_web_date(sent_date)
         expected_at = None
         if selected_status == ParcelStatus.IN_TRANSIT:
@@ -704,15 +761,41 @@ def create_web_app(
             path.write_bytes(content)
             parsed = await asyncio.to_thread(ExcelImporter().parse, path)
         async with session_factory() as session:
-            outcome = await ImportService(session).process(
-                parsed,
-                filename,
-                selected_status,
-                admin_id,
-                sent_at=sent_at,
-                expected_at=expected_at,
-            )
-            await session.commit()
+            try:
+                outcome = await ImportService(session).process(
+                    parsed,
+                    filename,
+                    selected_status,
+                    admin_id,
+                    sent_at=sent_at,
+                    expected_at=expected_at,
+                    target_import_id=target_import_id,
+                    file_hash=file_hash,
+                    auto_match=False,
+                )
+                await session.commit()
+            except DuplicateImportError as exc:
+                await session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Этот Excel уже загружен в партию №{exc.import_id}",
+                ) from exc
+            except ImportNotFoundError as exc:
+                await session.rollback()
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена") from exc
+            except ImportBatchConflictError as exc:
+                await session.rollback()
+                preview = ", ".join(exc.tracking_numbers[:3])
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Товары уже находятся в другой партии: {preview}",
+                ) from exc
+            except IntegrityError as exc:
+                await session.rollback()
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Этот Excel уже был загружен",
+                ) from exc
             delivered = 0
             for event in outcome.notifications:
                 delivered += int(await send_notification(bot, event))
@@ -724,6 +807,7 @@ def create_web_app(
                 "updated": record.updated_rows,
                 "skipped": record.skipped_rows,
                 "notifications": delivered,
+                "is_revision": outcome.is_revision,
             }
 
     @app.post("/api/imports/{import_id}/arrived")

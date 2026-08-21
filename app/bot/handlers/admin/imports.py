@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import tempfile
 from datetime import UTC, datetime
@@ -37,7 +38,7 @@ from app.core.enums import ParcelStatus
 from app.db.models import Import, Parcel
 from app.db.repositories import SettingRepository
 from app.services.excel_importer import ExcelImporter
-from app.services.import_service import ImportService
+from app.services.import_service import DuplicateImportError, ImportBatchConflictError, ImportService
 from app.services.notification_service import notify_parcel_status, send_notification
 from app.services.parcel_service import ParcelService
 
@@ -223,6 +224,7 @@ async def import_confirm(
         with tempfile.TemporaryDirectory(prefix="cargo_import_") as temp_dir:
             path = Path(temp_dir) / f"upload{suffix}"
             await bot.download(data["file_id"], destination=path)
+            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
             parsed = await asyncio.to_thread(ExcelImporter().parse, path)
         outcome = await ImportService(session).process(
             parsed=parsed,
@@ -231,8 +233,27 @@ async def import_confirm(
             uploaded_by=callback.from_user.id,
             sent_at=sent_at,
             expected_at=expected_at,
+            file_hash=file_hash,
+            auto_match=True,
         )
         await session.commit()
+    except DuplicateImportError as exc:
+        await session.rollback()
+        await callback.message.answer(
+            f"ℹ️ Этот Excel уже загружен в партию №{exc.import_id}. Повторный импорт не выполнен.",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
+    except ImportBatchConflictError as exc:
+        await session.rollback()
+        preview = ", ".join(exc.tracking_numbers[:3])
+        await callback.message.answer(
+            "❌ В файле есть товары из другой партии. "
+            f"Проверьте трек-коды: <code>{escape(preview)}</code>",
+            parse_mode="HTML",
+            reply_markup=admin_menu_keyboard(),
+        )
+        return
     except Exception as exc:
         logger.exception("Excel import failed: file=%s admin=%s", filename, callback.from_user.id)
         await session.rollback()
@@ -269,6 +290,11 @@ async def import_confirm(
     lines = [
         "✅ <b>Импорт завершён</b>",
         "",
+        (
+            f"🔄 Обновлена существующая партия №{record.id}"
+            if outcome.is_revision
+            else f"🆕 Создана новая партия №{record.id}"
+        ),
         f"📄 Файл: <code>{escape(filename)}</code>",
         f"📊 Статус: {selected_status.label}",
     ]

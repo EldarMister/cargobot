@@ -17,6 +17,8 @@ const state = {
   selectedParcel: null,
   selectedClient: null,
   selectedImport: null,
+  importDuplicate: false,
+  importAnalysisToken: 0,
   reloadTimer: null,
 };
 
@@ -401,6 +403,7 @@ async function loadClients() {
 async function loadImports() {
   state.imports = state.demo ? demo.imports : await api("/api/imports");
   renderImports();
+  renderImportTargets();
 }
 
 async function loadSettings() {
@@ -779,17 +782,78 @@ $("#client-block-form").addEventListener("submit", async (event) => {
   finally { button.disabled = false; }
 });
 
-function openImportDialog() { $("#import-sheet").showModal(); }
+function renderImportTargets(selectedValue) {
+  const select = $("#import-target");
+  if (!select) return;
+  const selected = selectedValue === undefined ? select.value : String(selectedValue || "");
+  select.innerHTML = `<option value="">${tr("Создать новую партию")}</option>${state.imports.map((item) =>
+    `<option value="${item.id}">${tr("Партия")} №${item.id} · ${escapeHtml(item.filename)}</option>`).join("")}`;
+  if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+}
+
+function setImportAnalysis(text, kind = "") {
+  const element = $("#import-analysis");
+  element.textContent = text;
+  element.className = `import-analysis${kind ? ` ${kind}` : ""}`;
+}
+
+function resetImportAnalysis() {
+  state.importDuplicate = false;
+  renderImportTargets("");
+  setImportAnalysis(tr("После выбора файла система проверит похожие партии."));
+}
+
+function openImportDialog() {
+  resetImportAnalysis();
+  $("#import-sheet").showModal();
+}
 $("#open-import").addEventListener("click", openImportDialog);
 $("#cancel-import").addEventListener("click", () => $("#import-sheet").close());
-$("#excel-file").addEventListener("change", (event) => {
-  $("#file-name").textContent = event.target.files[0]?.name || tr(".xls или .xlsx, до 20 МБ");
+$("#excel-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  $("#file-name").textContent = file?.name || tr(".xls или .xlsx, до 20 МБ");
+  state.importDuplicate = false;
+  if (!file || state.demo) return resetImportAnalysis();
+  const token = ++state.importAnalysisToken;
+  setImportAnalysis(tr("Проверяю файл и ищу похожую партию…"));
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const analysis = await api("/api/imports/analyze", { method: "POST", body: form });
+    if (token !== state.importAnalysisToken) return;
+    if (analysis.duplicate) {
+      state.importDuplicate = true;
+      renderImportTargets(analysis.duplicate.import_id);
+      setImportAnalysis(
+        tr("Этот файл уже загружен в партию №{id}. Повторный импорт не требуется.", { id: analysis.duplicate.import_id }),
+        "warning",
+      );
+    } else if (analysis.suggestion) {
+      renderImportTargets(analysis.suggestion.import_id);
+      setImportAnalysis(
+        tr("Найдена похожая партия №{id}: совпало {overlap} из {total} трек-кодов. Будет обновлена эта партия.", {
+          id: analysis.suggestion.import_id,
+          overlap: analysis.suggestion.overlap,
+          total: analysis.suggestion.uploaded_rows,
+        }),
+        "success",
+      );
+    } else {
+      renderImportTargets("");
+      setImportAnalysis(tr("Похожая партия не найдена. Будет создана новая партия."));
+    }
+  } catch (error) {
+    if (token !== state.importAnalysisToken) return;
+    setImportAnalysis(error.message, "warning");
+  }
 });
+$("#import-target").addEventListener("change", () => { state.importDuplicate = false; });
 $("#import-status").addEventListener("change", (event) => {
   $("#transit-fields").hidden = event.target.value !== "IN_TRANSIT";
 });
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.importDuplicate) return toast(tr("Этот файл уже был загружен"), true);
   if (state.demo) {
     $("#import-sheet").close();
     return toast(tr("Демо: Excel обработан"));
@@ -802,7 +866,9 @@ $("#import-form").addEventListener("submit", async (event) => {
     $("#import-sheet").close();
     event.target.reset();
     $("#file-name").textContent = tr(".xls или .xlsx, до 20 МБ");
-    toast(i18n.language === "en" ? `New: ${result.created}, updated: ${result.updated}` : i18n.language === "zh" ? `新增：${result.created}，更新：${result.updated}` : `Новых: ${result.created}, обновлено: ${result.updated}`);
+    resetImportAnalysis();
+    const action = result.is_revision ? tr("Партия обновлена") : tr("Новая партия создана");
+    toast(`${action}. ${tr("Новых")}: ${result.created}, ${tr("обновлено")}: ${result.updated}`);
     await Promise.all([loadImports(), loadParcels(), loadDashboard()]);
   } catch (error) { toast(error.message, true); }
   finally { button.disabled = false; button.textContent = tr("Импортировать"); }

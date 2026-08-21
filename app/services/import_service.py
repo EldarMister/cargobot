@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.enums import ImportRowResult, ParcelStatus
-from app.db.models import Import, ImportRow, Parcel, User
+from app.db.models import Import, ImportRevision, ImportRow, Parcel, User
 from app.services.excel_importer import ExcelParseResult
 from app.services.parcel_service import STATUS_DATE_FIELD, apply_delivery_dates
 
@@ -32,11 +35,99 @@ class ParcelNotification:
 class ImportOutcome:
     import_record: Import
     notifications: list[ParcelNotification]
+    is_revision: bool = False
+
+
+@dataclass(slots=True)
+class ImportSuggestion:
+    import_id: int
+    filename: str
+    overlap: int
+    uploaded_rows: int
+    batch_rows: int
+    similarity: float
+
+
+class DuplicateImportError(ValueError):
+    def __init__(self, import_id: int):
+        super().__init__("This Excel file has already been uploaded")
+        self.import_id = import_id
+
+
+class ImportNotFoundError(ValueError):
+    pass
+
+
+class ImportBatchConflictError(ValueError):
+    def __init__(self, tracking_numbers: list[str]):
+        super().__init__("Some shipments already belong to another batch")
+        self.tracking_numbers = tracking_numbers
 
 
 class ImportService:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    @staticmethod
+    def _normalized_filename(filename: str) -> str:
+        stem = Path(filename).stem.casefold().strip()
+        return re.sub(r"[\s_-]*(?:copy|копия|\(\d+\))$", "", stem).strip()
+
+    async def find_similar_import(
+        self,
+        parsed: ExcelParseResult,
+        filename: str,
+    ) -> ImportSuggestion | None:
+        tracking_numbers = {row.tracking_number for row in parsed.valid_rows if row.tracking_number}
+        if not tracking_numbers:
+            return None
+
+        overlap_rows = list(
+            (
+                await self.session.execute(
+                    select(Import, func.count(Parcel.id))
+                    .join(Parcel, Parcel.import_id == Import.id)
+                    .where(Parcel.tracking_number.in_(tracking_numbers))
+                    .group_by(Import.id)
+                )
+            ).all()
+        )
+        if not overlap_rows:
+            return None
+
+        import_ids = [record.id for record, _ in overlap_rows]
+        batch_sizes = dict(
+            (
+                await self.session.execute(
+                    select(Parcel.import_id, func.count(Parcel.id))
+                    .where(Parcel.import_id.in_(import_ids))
+                    .group_by(Parcel.import_id)
+                )
+            ).all()
+        )
+        normalized_name = self._normalized_filename(filename)
+        suggestions: list[tuple[bool, float, int, ImportSuggestion]] = []
+        for record, overlap_value in overlap_rows:
+            overlap = int(overlap_value)
+            batch_rows = int(batch_sizes.get(record.id, 0))
+            union = len(tracking_numbers) + batch_rows - overlap
+            similarity = overlap / union if union else 0.0
+            name_matches = self._normalized_filename(record.filename) == normalized_name
+            suggestion = ImportSuggestion(
+                import_id=record.id,
+                filename=record.filename,
+                overlap=overlap,
+                uploaded_rows=len(tracking_numbers),
+                batch_rows=batch_rows,
+                similarity=similarity,
+            )
+            suggestions.append((name_matches, similarity, overlap, suggestion))
+
+        name_matches, similarity, overlap, best = max(suggestions, key=lambda item: item[:3])
+        uploaded_coverage = overlap / len(tracking_numbers)
+        if similarity >= 0.5 or uploaded_coverage >= 0.7 or (name_matches and uploaded_coverage >= 0.25):
+            return best
+        return None
 
     async def process(
         self,
@@ -46,20 +137,56 @@ class ImportService:
         uploaded_by: int,
         sent_at: datetime | None = None,
         expected_at: datetime | None = None,
+        target_import_id: int | None = None,
+        file_hash: str | None = None,
+        auto_match: bool = True,
     ) -> ImportOutcome:
-        record = Import(
-            filename=filename,
-            selected_status=selected_status,
-            uploaded_by=uploaded_by,
-            sent_at=sent_at,
-            expected_at=expected_at,
-            total_rows=parsed.total_rows,
-            valid_rows=len(parsed.valid_rows),
-            skipped_rows=len(parsed.skipped_rows),
-            rows=[],
-        )
-        self.session.add(record)
-        await self.session.flush()
+        if file_hash:
+            duplicate_import_id = await self.session.scalar(
+                select(ImportRevision.import_id).where(ImportRevision.file_hash == file_hash)
+            )
+            if duplicate_import_id is not None:
+                raise DuplicateImportError(duplicate_import_id)
+
+        if target_import_id is None and auto_match:
+            suggestion = await self.find_similar_import(parsed, filename)
+            target_import_id = suggestion.import_id if suggestion else None
+
+        is_revision = target_import_id is not None
+        if target_import_id is not None:
+            record = await self.session.scalar(
+                select(Import)
+                .options(selectinload(Import.rows))
+                .where(Import.id == target_import_id)
+                .with_for_update()
+            )
+            if record is None:
+                raise ImportNotFoundError(f"Import {target_import_id} was not found")
+            record.rows.clear()
+            record.filename = filename
+            record.selected_status = selected_status
+            record.uploaded_by = uploaded_by
+            record.sent_at = sent_at
+            record.expected_at = expected_at
+            record.total_rows = parsed.total_rows
+            record.valid_rows = len(parsed.valid_rows)
+            record.created_rows = 0
+            record.updated_rows = 0
+            record.skipped_rows = len(parsed.skipped_rows)
+        else:
+            record = Import(
+                filename=filename,
+                selected_status=selected_status,
+                uploaded_by=uploaded_by,
+                sent_at=sent_at,
+                expected_at=expected_at,
+                total_rows=parsed.total_rows,
+                valid_rows=len(parsed.valid_rows),
+                skipped_rows=len(parsed.skipped_rows),
+                rows=[],
+            )
+            self.session.add(record)
+            await self.session.flush()
 
         notifications: list[ParcelNotification] = []
         client_codes = {row.client_code for row in parsed.valid_rows if row.client_code}
@@ -74,6 +201,13 @@ class ImportService:
                 select(Parcel).where(Parcel.tracking_number.in_(tracking_numbers))
             )
         }
+        conflicts = sorted(
+            parcel.tracking_number
+            for parcel in parcels.values()
+            if parcel.import_id is not None and parcel.import_id != record.id
+        )
+        if conflicts:
+            raise ImportBatchConflictError(conflicts)
 
         for row in parsed.rows:
             if not row.is_valid:
@@ -187,5 +321,19 @@ class ImportService:
                     )
                 )
 
+        if file_hash:
+            self.session.add(
+                ImportRevision(
+                    import_id=record.id,
+                    filename=filename,
+                    file_hash=file_hash,
+                    uploaded_by=uploaded_by,
+                    total_rows=record.total_rows,
+                    valid_rows=record.valid_rows,
+                    created_rows=record.created_rows,
+                    updated_rows=record.updated_rows,
+                    skipped_rows=record.skipped_rows,
+                )
+            )
         await self.session.flush()
-        return ImportOutcome(record, notifications)
+        return ImportOutcome(record, notifications, is_revision=is_revision)
