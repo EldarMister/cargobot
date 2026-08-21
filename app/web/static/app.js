@@ -30,6 +30,15 @@ const pageTitles = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
+function refreshIcons() {
+  window.lucide?.createIcons({
+    attrs: {
+      "stroke-width": 1.8,
+      "aria-hidden": "true",
+    },
+  });
+}
+
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -106,20 +115,20 @@ function statusText(label) {
 function statusIcon(status) {
   return ({
     CHINA_WAREHOUSE: "flag",
-    PREPARING: "box",
+    PREPARING: "package",
     IN_TRANSIT: "truck",
-    ARRIVED_COUNTRY: "building",
-    LOCAL_WAREHOUSE: "building",
-    READY_FOR_PICKUP: "check",
-    DELIVERED: "check",
-    CANCELLED: "cross",
-  })[status] || "dot";
+    ARRIVED_COUNTRY: "building-2",
+    LOCAL_WAREHOUSE: "warehouse",
+    READY_FOR_PICKUP: "square-check",
+    DELIVERED: "circle-check",
+    CANCELLED: "circle-x",
+  })[status] || "circle";
 }
 
 function statusBadge(parcel, actions) {
   const tag = actions ? "button" : "span";
   const action = actions ? ` type="button" data-edit-parcel="${parcel.id}"` : "";
-  return `<${tag} class="status-badge ${statusTone(parcel.status)}"${action}><i class="${statusIcon(parcel.status)}" aria-hidden="true"></i><span>${escapeHtml(statusText(parcel.status_label))}</span></${tag}>`;
+  return `<${tag} class="status-badge ${statusTone(parcel.status)}"${action}><i data-lucide="${statusIcon(parcel.status)}" aria-hidden="true"></i><span>${escapeHtml(statusText(parcel.status_label))}</span></${tag}>`;
 }
 
 function parcelRow(parcel, actions = true) {
@@ -149,13 +158,14 @@ function renderDashboard(data) {
     .filter(([, count]) => count > 0)
     .map(([value, count]) => `
       <div class="status-line">
-        <span><i class="status-dot ${statusTone(value)}"></i>${escapeHtml(labels[value] || value)}</span><b>${count}</b>
+        <span><i data-lucide="${statusIcon(value)}" class="status-dot ${statusTone(value)}" aria-hidden="true"></i>${escapeHtml(statusText(labels[value] || value))}</span><b>${count}</b>
       </div>`).join("") || empty("Статистика появится после загрузки товаров");
 
   const recent = state.parcels.slice(0, 5);
   $("#recent-parcels").innerHTML = recent.length
     ? recent.map((parcel) => parcelRow(parcel, false)).join("")
     : empty("Товаров пока нет");
+  refreshIcons();
 }
 
 function sortedParcels() {
@@ -172,6 +182,7 @@ function renderParcels() {
   $("#parcel-list").innerHTML = rows.length
     ? rows.map((parcel) => parcelRow(parcel)).join("")
     : empty("По этому запросу товары не найдены");
+  refreshIcons();
 }
 
 function renderClients() {
@@ -188,9 +199,9 @@ function renderClients() {
 function importRow(item) {
   return `
     <article class="table-row import-row">
-      <div><div class="import-name"><span class="excel-mark">X</span><strong>${escapeHtml(item.filename)}</strong></div><small>Партия №${item.id} · ${escapeHtml(item.status_label)}</small></div>
+      <div><div class="import-name"><span class="excel-mark"><i data-lucide="file-spreadsheet" aria-hidden="true"></i></span><strong>${escapeHtml(item.filename)}</strong></div><small>Партия №${item.id} · ${escapeHtml(statusText(item.status_label))}</small></div>
       <div>${item.sent_at ? `<span>${escapeHtml(item.sent_at)}</span>` : "—"}<small>${item.expected_at ? `Ожидается ${escapeHtml(item.expected_at)}` : "Без расчётной даты"}</small></div>
-      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div><i class="row-chevron" aria-hidden="true"></i>
+      <div><b>+${item.created_rows}</b> / ${item.updated_rows}<small>новых / обновлено</small><button class="manage-action" data-edit-import="${item.id}">Статус партии</button></div><i data-lucide="chevron-right" class="row-chevron" aria-hidden="true"></i>
     </article>`;
 }
 
@@ -198,6 +209,7 @@ function renderImports() {
   $("#import-list").innerHTML = state.imports.length
     ? state.imports.map(importRow).join("")
     : empty("Импортов пока нет");
+  refreshIcons();
 }
 
 function closeDialog(id) {
@@ -258,6 +270,7 @@ function renderClientParcels(client, parcels) {
   $("#client-parcels-list").innerHTML = parcels.length
     ? parcels.map((parcel) => parcelRow(parcel, false)).join("")
     : empty("У клиента пока нет товаров");
+  refreshIcons();
 }
 
 function renderSettings(values) {
@@ -272,7 +285,7 @@ function renderSettings(values) {
 }
 
 function buildStatusControls() {
-  const options = state.statuses.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join("");
+  const options = state.statuses.map((item) => `<option value="${item.value}">${escapeHtml(statusText(item.label))}</option>`).join("");
   $("#status-select").innerHTML = options;
   $("#import-status").innerHTML = options;
   $("#batch-status-select").innerHTML = options;
@@ -299,8 +312,9 @@ function openPicker(name) {
   $("#picker-title").textContent = name === "status" ? "Выберите статус" : "Сортировать товары";
   $("#picker-options").innerHTML = pickerItems(name).map((item) => `
     <button class="picker-option${item.value === select.value ? " selected" : ""}" type="button" data-picker-value="${escapeHtml(item.value)}">
-      <span>${escapeHtml(item.label)}</span><i aria-hidden="true"></i>
+      <span class="picker-label">${escapeHtml(statusText(item.label))}</span><span class="picker-radio" aria-hidden="true"><i data-lucide="check"></i></span>
     </button>`).join("");
+  refreshIcons();
   $("#picker-sheet").showModal();
 }
 
@@ -749,4 +763,5 @@ const demo = {
   },
 };
 
+refreshIcons();
 authenticate();
