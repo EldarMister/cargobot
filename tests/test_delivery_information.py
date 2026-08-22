@@ -60,7 +60,7 @@ def test_expected_arrival_is_calculated_from_transit_days():
 async def test_manual_status_change_writes_history_only_once(session):
     parcel = Parcel(
         tracking_number="MANUAL000001",
-        client_code="J-0001",
+        client_code="H-801",
         status=ParcelStatus.CHINA_WAREHOUSE,
     )
     session.add(parcel)
@@ -79,7 +79,7 @@ def test_ready_for_pickup_has_dedicated_notification():
     event = ParcelNotification(
         telegram_id=1,
         tracking_number="TRACK000001",
-        client_code="J-0001",
+        client_code="H-801",
         status=ParcelStatus.READY_FOR_PICKUP,
         is_new=False,
         status_changed=True,
@@ -94,7 +94,7 @@ def test_ready_for_pickup_has_dedicated_notification():
 def test_old_parcel_without_dates_is_rendered_safely():
     parcel = Parcel(
         tracking_number="OLDTRACK0001",
-        client_code="J-0001",
+        client_code="H-801",
         status=ParcelStatus.CHINA_WAREHOUSE,
     )
 
@@ -113,13 +113,13 @@ def test_warehouse_address_includes_client_code():
             "warehouse_address": "广东省广州市",
             "warehouse_name": "BCL库房",
         },
-        "J-8226",
+        "H-8226",
     )
 
-    assert "Получатель: 王国利 J-8226" in text
+    assert "Получатель: 王国利 H-8226" in text
     assert "Телефон: 18818913136" in text
     assert "Адрес: 广东省广州市" in text
-    assert "Склад: BCL库房 J-8226" in text
+    assert "Склад: BCL库房 H-8226" in text
 
 
 def test_whatsapp_setting_accepts_phone_or_ready_link():
@@ -140,17 +140,17 @@ def test_warehouse_address_shows_both_configured_warehouses():
             "warehouse_address_2": "Second address",
             "warehouse_name_2": "Second warehouse",
         },
-        "J-8226",
+        "H-8226",
     )
 
     assert "Адрес склада в Китае №1" in text
     assert "Адрес склада в Китае №2" in text
-    assert "Получатель: First receiver J-8226" in text
+    assert "Получатель: First receiver H-8226" in text
     assert "Адрес: First address" in text
-    assert "Получатель: Second receiver J-8226" in text
+    assert "Получатель: Second receiver H-8226" in text
     assert "Телефон: 200-02" in text
     assert "Адрес: Second address" in text
-    assert "Склад: Second warehouse J-8226" in text
+    assert "Склад: Second warehouse H-8226" in text
 
 
 def test_warehouse_address_shows_only_the_configured_warehouse():
@@ -159,10 +159,10 @@ def test_warehouse_address_shows_only_the_configured_warehouse():
             "warehouse_receiver": "First receiver",
             "warehouse_address": "First address",
         },
-        "J-0001",
+        "H-801",
     )
 
-    assert "Получатель: First receiver J-0001" in text
+    assert "Получатель: First receiver H-801" in text
     assert "Адрес: First address" in text
     assert "№1" not in text
     assert "№2" not in text
@@ -171,7 +171,7 @@ def test_warehouse_address_shows_only_the_configured_warehouse():
 def test_delivery_reminders_are_one_time_and_do_not_mark_arrival():
     parcel = Parcel(
         tracking_number="REMINDER0001",
-        client_code="J-8226",
+        client_code="H-8226",
         status=ParcelStatus.IN_TRANSIT,
         expected_at=datetime(2026, 5, 26, tzinfo=UTC),
     )
@@ -198,7 +198,7 @@ def test_delivery_reminders_are_one_time_and_do_not_mark_arrival():
 def test_changed_expected_date_rearms_delivery_reminders():
     parcel = Parcel(
         tracking_number="REMINDER0002",
-        client_code="J-8226",
+        client_code="H-8226",
         status=ParcelStatus.IN_TRANSIT,
         expected_at=datetime(2026, 5, 26, tzinfo=UTC),
         approaching_notified_at=datetime(2026, 5, 23, tzinfo=UTC),

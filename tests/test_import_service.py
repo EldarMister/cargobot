@@ -11,7 +11,7 @@ from app.services.notification_service import notification_text
 from app.services.parcel_service import ParcelService
 
 
-def parsed(tracking="YT7592444294461", code="J-0329"):
+def parsed(tracking="YT7592444294461", code="H-829"):
     return ExcelParseResult(rows=[ParsedExcelRow("Sheet1", 2, tracking_number=tracking, client_code=code)])
 
 
@@ -89,7 +89,7 @@ async def test_explicit_new_batch_does_not_steal_existing_tracking(session):
 
 
 async def test_same_status_does_not_notify_twice(session):
-    user = User(client_code="J-0329", full_name="Иван Иванов", phone="+996555000000", telegram_id=777)
+    user = User(client_code="H-829", full_name="Иван Иванов", phone="+996555000000", telegram_id=777)
     session.add(user)
     await session.commit()
     first = await ImportService(session).process(parsed(), "first.xlsx", ParcelStatus.CHINA_WAREHOUSE, 100)
@@ -103,7 +103,7 @@ async def test_same_status_does_not_notify_twice(session):
 
 async def test_duplicate_tracking_inside_one_file_is_not_duplicated(session):
     data = parsed()
-    data.rows.append(ParsedExcelRow("Sheet2", 3, tracking_number="YT7592444294461", client_code="J-0329"))
+    data.rows.append(ParsedExcelRow("Sheet2", 3, tracking_number="YT7592444294461", client_code="H-829"))
     outcome = await ImportService(session).process(data, "duplicate.xlsx", ParcelStatus.CHINA_WAREHOUSE, 100)
     await session.commit()
 
@@ -115,7 +115,7 @@ async def test_new_in_transit_parcel_receives_explicit_delivery_dates(session):
     sent_at = datetime(2026, 5, 16, tzinfo=UTC)
     expected_at = datetime(2026, 5, 26, tzinfo=UTC)
     user = User(
-        client_code="J-0329",
+        client_code="H-829",
         full_name="Иван Иванов",
         phone="+996555000000",
         telegram_id=777,
@@ -148,7 +148,7 @@ async def test_identical_status_and_dates_do_not_repeat_notification(session):
     expected_at = datetime(2026, 5, 26, tzinfo=UTC)
     session.add(
         User(
-            client_code="J-0329",
+            client_code="H-829",
             full_name="Иван Иванов",
             phone="+996555000000",
             telegram_id=777,
@@ -185,7 +185,7 @@ async def test_changed_expected_date_notifies_without_status_history(session):
     new_expected = datetime(2026, 5, 29, tzinfo=UTC)
     session.add(
         User(
-            client_code="J-0329",
+            client_code="H-829",
             full_name="Иван Иванов",
             phone="+996555000000",
             telegram_id=777,
@@ -224,7 +224,7 @@ async def test_changed_expected_date_notifies_without_status_history(session):
 async def test_changed_status_creates_history_and_notification(session):
     session.add(
         User(
-            client_code="J-0329",
+            client_code="H-829",
             full_name="Иван Иванов",
             phone="+996555000000",
             telegram_id=777,
@@ -257,13 +257,13 @@ async def test_admin_marks_whole_import_batch_arrived(session):
         [
             Parcel(
                 tracking_number="BATCH000001",
-                client_code="J-0001",
+                client_code="H-801",
                 import_id=batch.id,
                 status=ParcelStatus.IN_TRANSIT,
             ),
             Parcel(
                 tracking_number="BATCH000002",
-                client_code="J-0002",
+                client_code="H-802",
                 import_id=batch.id,
                 status=ParcelStatus.IN_TRANSIT,
             ),
@@ -291,13 +291,13 @@ async def test_admin_changes_status_for_whole_import_batch(session):
         [
             Parcel(
                 tracking_number="GROUP000001",
-                client_code="J-0001",
+                client_code="H-801",
                 import_id=batch.id,
                 status=ParcelStatus.CHINA_WAREHOUSE,
             ),
             Parcel(
                 tracking_number="GROUP000002",
-                client_code="J-0002",
+                client_code="H-802",
                 import_id=batch.id,
                 status=ParcelStatus.PREPARING,
             ),

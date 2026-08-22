@@ -46,7 +46,7 @@ class UserService:
             number = await self.users.next_client_number()
             user = User(
                 telegram_id=telegram_id,
-                client_code=f"J-{number:04d}",
+                client_code=f"H-{number}",
                 full_name=full_name,
                 phone=phone,
                 city=city or None,

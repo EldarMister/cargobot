@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 
-CLIENT_CODE_RE = re.compile(r"^J-\d+$", re.IGNORECASE)
+CLIENT_CODE_RE = re.compile(r"^H-(\d+)$", re.IGNORECASE)
 TRACKING_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{5,127}$", re.IGNORECASE)
 DATE_TEXT_RE = re.compile(r"(?:\d{4}[年./-]\d{1,2}[月./-]\d{1,2}日?|^AD\s*\d{4})", re.IGNORECASE)
 
@@ -14,7 +14,8 @@ def normalize_client_code(value: object) -> str:
 
 
 def is_valid_client_code(value: object) -> bool:
-    return bool(CLIENT_CODE_RE.fullmatch(normalize_client_code(value)))
+    match = CLIENT_CODE_RE.fullmatch(normalize_client_code(value))
+    return bool(match and int(match.group(1)) >= 801)
 
 
 def normalize_tracking_number(value: object) -> str:

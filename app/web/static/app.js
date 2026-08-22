@@ -243,7 +243,7 @@ function openClientDetail(clientId) {
   const client = state.selectedClient;
   $("#client-detail-name").textContent = client.full_name;
   $("#client-detail").innerHTML = `
-    <div><span>${tr("J-код")}</span><b>${escapeHtml(client.client_code)}</b></div>
+    <div><span>${tr("H-код")}</span><b>${escapeHtml(client.client_code)}</b></div>
     <div><span>${tr("Телефон")}</span><b>${escapeHtml(client.phone)}</b></div>
     <div><span>${tr("Город")}</span><b>${escapeHtml(client.city || tr("Не указан"))}</b></div>
     <div><span>Telegram ID</span><b>${escapeHtml(client.telegram_id || tr("Не привязан"))}</b></div>
@@ -322,6 +322,11 @@ function renderSettings(values) {
   $("#setting-whatsapp").value = values.contact_whatsapp || "";
   $("#setting-local-warehouse-address").value = values.local_warehouse_address || "";
   $("#setting-work-schedule").value = values.work_schedule || "";
+}
+
+function showWarehousePanel(slot) {
+  $("#warehouse-panel-1").hidden = slot !== 1;
+  $("#warehouse-panel-2").hidden = slot !== 2;
 }
 
 function buildStatusControls() {
@@ -811,7 +816,7 @@ $("#client-form").addEventListener("submit", async (event) => {
       else state.clients.unshift({
         ...payload,
         id: Date.now(),
-        client_code: payload.client_code || `J-${String(state.clients.length + 1).padStart(4, "0")}`,
+        client_code: payload.client_code || `H-${801 + state.clients.length}`,
         parcels: 0,
         is_active: true,
         is_blocked: false,
@@ -984,6 +989,7 @@ $("#delete-warehouse-2").addEventListener("click", async () => {
       warehouse_name_2: "",
     };
     renderSettings(values);
+    showWarehousePanel(1);
     return toast(tr("Демо: склад 2 удалён"));
   }
   const button = $("#delete-warehouse-2");
@@ -991,10 +997,15 @@ $("#delete-warehouse-2").addEventListener("click", async () => {
   try {
     const result = await api("/api/settings/warehouses/2", { method: "DELETE" });
     renderSettings(result);
+    showWarehousePanel(1);
     toast(tr("Склад 2 удалён"));
   } catch (error) { toast(error.message, true); }
   finally { button.disabled = false; }
 });
+
+$$('[data-warehouse-view]').forEach((button) => button.addEventListener("click", () => {
+  showWarehousePanel(Number(button.dataset.warehouseView));
+}));
 
 $("#floating-action").addEventListener("click", () => {
   if (state.currentView === "imports") openImportDialog();
@@ -1055,15 +1066,15 @@ const demo = {
     status_counts: { CHINA_WAREHOUSE: 69, PREPARING: 38, IN_TRANSIT: 148, ARRIVED_COUNTRY: 27, READY_FOR_PICKUP: 18, DELIVERED: 12 },
   },
   parcels: [
-    { id: 1, tracking_number: "78999695208956", client_code: "J-8226", client_name: "Султанов Азим", status: "IN_TRANSIT", status_label: "🚚 В пути", sent_at: "20.08.2026", expected_at: "01.09.2026", sent_date: "2026-08-20", expected_date: "2026-09-01" },
-    { id: 2, tracking_number: "YT7592444294461", client_code: "J-0329", client_name: "Айжан Иманова", status: "CHINA_WAREHOUSE", status_label: "🇨🇳 На складе в Китае", sent_at: null, expected_at: null },
-    { id: 3, tracking_number: "9812328869266", client_code: "J-4040", client_name: "Эльдар Каримов", status: "ARRIVED_COUNTRY", status_label: "🏢 Прибыл", sent_at: "08.08.2026", expected_at: "20.08.2026" },
-    { id: 4, tracking_number: "SF604118237991", client_code: "J-1190", client_name: "Нурбек Алиев", status: "PREPARING", status_label: "📦 Готовится к отправке", sent_at: null, expected_at: null },
+    { id: 1, tracking_number: "78999695208956", client_code: "H-801", client_name: "Султанов Азим", status: "IN_TRANSIT", status_label: "🚚 В пути", sent_at: "20.08.2026", expected_at: "01.09.2026", sent_date: "2026-08-20", expected_date: "2026-09-01" },
+    { id: 2, tracking_number: "YT7592444294461", client_code: "H-802", client_name: "Айжан Иманова", status: "CHINA_WAREHOUSE", status_label: "🇨🇳 На складе в Китае", sent_at: null, expected_at: null },
+    { id: 3, tracking_number: "9812328869266", client_code: "H-803", client_name: "Эльдар Каримов", status: "ARRIVED_COUNTRY", status_label: "🏢 Прибыл", sent_at: "08.08.2026", expected_at: "20.08.2026" },
+    { id: 4, tracking_number: "SF604118237991", client_code: "H-804", client_name: "Нурбек Алиев", status: "PREPARING", status_label: "📦 Готовится к отправке", sent_at: null, expected_at: null },
   ],
   clients: [
-    { id: 1, client_code: "J-8226", full_name: "Султанов Азим", phone: "+996 555 123 456", city: "Бишкек", telegram_id: 1, parcels: 7, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
-    { id: 2, client_code: "J-0329", full_name: "Айжан Иманова", phone: "+996 700 987 654", city: "Ош", telegram_id: 2, parcels: 3, is_active: true, is_blocked: true, block_mode: "temporary", blocked_until_text: "24.08.2026 12:00" },
-    { id: 3, client_code: "J-4040", full_name: "Эльдар Каримов", phone: "+996 777 400 400", city: null, telegram_id: null, parcels: 5, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
+    { id: 1, client_code: "H-801", full_name: "Султанов Азим", phone: "+996 555 123 456", city: "Бишкек", telegram_id: 1, parcels: 7, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
+    { id: 2, client_code: "H-802", full_name: "Айжан Иманова", phone: "+996 700 987 654", city: "Ош", telegram_id: 2, parcels: 3, is_active: true, is_blocked: true, block_mode: "temporary", blocked_until_text: "24.08.2026 12:00" },
+    { id: 3, client_code: "H-803", full_name: "Эльдар Каримов", phone: "+996 777 400 400", city: null, telegram_id: null, parcels: 5, is_active: true, is_blocked: false, block_mode: null, blocked_until_text: null },
   ],
   imports: [
     { id: 18, filename: "cargo-20-08.xlsx", status: "IN_TRANSIT", status_label: "🚚 В пути", sent_at: "20.08.2026", expected_at: "01.09.2026", sent_date: "2026-08-20", expected_date: "2026-09-01", created_rows: 48, updated_rows: 7 },
@@ -1072,7 +1083,7 @@ const demo = {
   settings: {
     company_name: "BCL EXPRESS",
     default_transit_days: 12,
-    warehouse_receiver: "王国利 J-8226",
+    warehouse_receiver: "王国利",
     warehouse_phone: "18818913136",
     warehouse_address: "广东省广州市荔湾区站前路流花新街16号136",
     warehouse_name: "BCL库房",

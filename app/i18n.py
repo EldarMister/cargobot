@@ -41,8 +41,8 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
             "🎉 <b>Регистрация завершена!</b>\n\n"
             "Ваш новый код клиента: <b>{code}</b>\n\n{warehouse}"
         ),
-        "enter_client_code": "🔑 Введите ваш код клиента, например J-0001",
-        "invalid_client_code": "Неверный формат. Введите код вида J-0001.",
+        "enter_client_code": "🔑 Введите ваш код клиента, например H-801",
+        "invalid_client_code": "Неверный формат. Введите код вида H-801.",
         "enter_exact_name": "Введите ФИО точно так же, как оно записано в базе.",
         "code_already_linked": "❌ Этот старый код уже привязан к другому пользователю.",
         "too_many_attempts": "Слишком много неудачных попыток. Начните заново или обратитесь в поддержку.",
@@ -157,8 +157,8 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
             "🎉 <b>Registration complete!</b>\n\n"
             "Your new client code: <b>{code}</b>\n\n{warehouse}"
         ),
-        "enter_client_code": "🔑 Enter your client code, for example J-0001",
-        "invalid_client_code": "Invalid format. Enter a code such as J-0001.",
+        "enter_client_code": "🔑 Enter your client code, for example H-801",
+        "invalid_client_code": "Invalid format. Enter a code such as H-801.",
         "enter_exact_name": "Enter your full name exactly as it appears in our records.",
         "code_already_linked": "❌ This client code is already linked to another user.",
         "too_many_attempts": "Too many unsuccessful attempts. Start again or contact support.",
@@ -272,8 +272,8 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "registration_complete": (
             "🎉 <b>注册成功！</b>\n\n您的新客户编号：<b>{code}</b>\n\n{warehouse}"
         ),
-        "enter_client_code": "🔑 请输入客户编号，例如 J-0001",
-        "invalid_client_code": "编号格式不正确，请输入类似 J-0001 的编号。",
+        "enter_client_code": "🔑 请输入客户编号，例如 H-801",
+        "invalid_client_code": "编号格式不正确，请输入类似 H-801 的编号。",
         "enter_exact_name": "请输入与系统记录完全一致的姓名。",
         "code_already_linked": "❌ 此客户编号已绑定到其他用户。",
         "too_many_attempts": "尝试次数过多，请重新开始或联系客户服务。",

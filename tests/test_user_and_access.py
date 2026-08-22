@@ -9,16 +9,16 @@ from app.services.user_service import UserService, UserServiceError
 
 
 async def test_link_existing_client_attaches_old_parcels(session):
-    user = User(client_code="J-8226", full_name="Султанов Азим", phone="+996555000000")
+    user = User(client_code="H-8226", full_name="Султанов Азим", phone="+996555000000")
     parcel = Parcel(
         tracking_number="78999695208956",
-        client_code="J-8226",
+        client_code="H-8226",
         status=ParcelStatus.IN_TRANSIT,
     )
     session.add_all([user, parcel])
     await session.commit()
 
-    linked = await UserService(session).link_existing(123456, "j - 8226", "  Султанов   Азим ")
+    linked = await UserService(session).link_existing(123456, "h - 8226", "  Султанов   Азим ")
     await session.commit()
     await session.refresh(parcel)
 
@@ -27,11 +27,11 @@ async def test_link_existing_client_attaches_old_parcels(session):
 
 
 async def test_wrong_name_cannot_link_client(session):
-    session.add(User(client_code="J-8226", full_name="Султанов Азим", phone="+996555000000"))
+    session.add(User(client_code="H-8226", full_name="Султанов Азим", phone="+996555000000"))
     await session.commit()
 
     with pytest.raises(UserServiceError, match="не совпадают"):
-        await UserService(session).link_existing(123456, "J-8226", "Чужое Имя")
+        await UserService(session).link_existing(123456, "H-8226", "Чужое Имя")
 
 
 async def test_client_sees_only_own_parcels(session):
@@ -39,19 +39,19 @@ async def test_client_sees_only_own_parcels(session):
         [
             Parcel(
                 tracking_number="TRACK000001",
-                client_code="J-0001",
+                client_code="H-801",
                 status=ParcelStatus.CHINA_WAREHOUSE,
             ),
             Parcel(
                 tracking_number="TRACK000002",
-                client_code="J-0002",
+                client_code="H-802",
                 status=ParcelStatus.CHINA_WAREHOUSE,
             ),
         ]
     )
     await session.commit()
 
-    parcels = await ParcelRepository(session).for_client("J-0001")
+    parcels = await ParcelRepository(session).for_client("H-801")
 
     assert [parcel.tracking_number for parcel in parcels] == ["TRACK000001"]
 
@@ -61,12 +61,12 @@ async def test_active_and_delivered_parcels_are_separated(session):
         [
             Parcel(
                 tracking_number="ACTIVE000001",
-                client_code="J-0001",
+                client_code="H-801",
                 status=ParcelStatus.IN_TRANSIT,
             ),
             Parcel(
                 tracking_number="ISSUED000001",
-                client_code="J-0001",
+                client_code="H-801",
                 status=ParcelStatus.DELIVERED,
             ),
         ]
@@ -74,8 +74,8 @@ async def test_active_and_delivered_parcels_are_separated(session):
     await session.commit()
     repository = ParcelRepository(session)
 
-    active = await repository.active_for_client("J-0001")
-    delivered = await repository.delivered_for_client("J-0001")
+    active = await repository.active_for_client("H-801")
+    delivered = await repository.delivered_for_client("H-801")
 
     assert [parcel.tracking_number for parcel in active] == ["ACTIVE000001"]
     assert [parcel.tracking_number for parcel in delivered] == ["ISSUED000001"]
@@ -85,28 +85,37 @@ async def test_new_client_registration_requires_only_full_name(session):
     user = await UserService(session).register(123456, "Райымов Элдар", language="en")
     await session.commit()
 
-    assert user.client_code == "J-0001"
+    assert user.client_code == "H-801"
     assert user.full_name == "Райымов Элдар"
     assert user.phone == ""
     assert user.language == "en"
 
 
+async def test_new_client_code_continues_h_sequence_from_801(session):
+    session.add(User(client_code="H-801", full_name="Первый Клиент", phone=""))
+    await session.commit()
+
+    user = await UserService(session).register(123457, "Второй Клиент")
+
+    assert user.client_code == "H-802"
+
+
 async def test_one_telegram_cannot_link_two_codes(session):
     session.add_all(
         [
-            User(client_code="J-0001", full_name="Иван Иванов", phone="+996111111111", telegram_id=10),
-            User(client_code="J-0002", full_name="Петр Петров", phone="+996222222222"),
+            User(client_code="H-801", full_name="Иван Иванов", phone="+996111111111", telegram_id=10),
+            User(client_code="H-802", full_name="Петр Петров", phone="+996222222222"),
         ]
     )
     await session.commit()
 
     with pytest.raises(UserServiceError, match="другой код"):
-        await UserService(session).link_existing(10, "J-0002", "Петр Петров")
+        await UserService(session).link_existing(10, "H-802", "Петр Петров")
 
 
 def test_client_access_supports_temporary_and_permanent_blocks():
     now = datetime.now(UTC)
-    user = User(client_code="J-0001", full_name="Иван Иванов", phone="+996111111111")
+    user = User(client_code="H-801", full_name="Иван Иванов", phone="+996111111111")
 
     assert user.has_access(now)
     user.blocked_until = now + timedelta(days=3)

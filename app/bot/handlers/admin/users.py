@@ -60,7 +60,7 @@ async def search_start(message: Message, state: FSMContext) -> None:
         edit_requested=message.text == "✏️ Редактировать клиента",
     )
     await message.answer(
-        "Введите J-код, ФИО, телефон или Telegram ID:",
+        "Введите H-код, ФИО, телефон или Telegram ID:",
         reply_markup=cancel_keyboard(),
     )
 
@@ -176,7 +176,7 @@ async def add_user_phone(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(phone=phone)
     await state.set_state(AdminStates.user_add_code)
-    await message.answer("Введите J-код или слово «Авто» для назначения следующего свободного:")
+    await message.answer("Введите H-код или слово «Авто» для назначения следующего свободного:")
 
 
 @router.message(AdminStates.user_add_code, F.text)
@@ -184,11 +184,11 @@ async def add_user_code(message: Message, state: FSMContext, session: AsyncSessi
     data = await state.get_data()
     repository = UserRepository(session)
     if message.text.strip().casefold() == "авто":
-        code = f"J-{await repository.next_client_number():04d}"
+        code = f"H-{await repository.next_client_number()}"
     elif is_valid_client_code(message.text):
         code = normalize_client_code(message.text)
     else:
-        await message.answer("Введите код вида J-0001 или слово «Авто».")
+        await message.answer("Введите код вида H-801 или слово «Авто».")
         return
     user = User(client_code=code, full_name=data["full_name"], phone=data["phone"])
     session.add(user)

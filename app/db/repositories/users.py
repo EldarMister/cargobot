@@ -27,8 +27,10 @@ class UserRepository:
 
     async def next_client_number(self) -> int:
         codes = await self.session.scalars(select(User.client_code))
-        maximum = 0
+        maximum = 800
         for code in codes:
+            if not code.upper().startswith("H-"):
+                continue
             try:
                 maximum = max(maximum, int(code.split("-", 1)[1]))
             except (IndexError, ValueError):

@@ -414,7 +414,7 @@ def create_web_app(
         if not is_valid_client_code(payload.client_code):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "J-код должен быть в формате J-0001",
+                "Код клиента должен быть в формате H-801",
             )
         sent_at = _parse_web_date(payload.sent_date)
         expected_at = _parse_web_date(payload.expected_date)
@@ -522,11 +522,11 @@ def create_web_app(
                 if not is_valid_client_code(payload.client_code):
                     raise HTTPException(
                         status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        "J-код должен быть в формате J-0001",
+                        "Код клиента должен быть в формате H-801",
                     )
                 client_code = normalize_client_code(payload.client_code)
             else:
-                client_code = f"J-{await repository.next_client_number():04d}"
+                client_code = f"H-{await repository.next_client_number()}"
             user = User(
                 client_code=client_code,
                 full_name=full_name,
@@ -543,7 +543,7 @@ def create_web_app(
                 await session.rollback()
                 raise HTTPException(
                     status.HTTP_409_CONFLICT,
-                    "J-код или Telegram ID уже используется",
+                    "H-код или Telegram ID уже используется",
                 ) from exc
             parcel_count = int(
                 await session.scalar(

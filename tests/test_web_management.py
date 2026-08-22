@@ -55,7 +55,7 @@ async def test_web_admin_can_create_edit_block_and_inspect_client(web_management
     created = await client.post(
         "/api/clients",
         json={
-            "client_code": "J-8226",
+            "client_code": "H-8226",
             "full_name": "Султанов Азим",
             "phone": "+996 555 123 456",
             "city": "Бишкек",
@@ -68,7 +68,7 @@ async def test_web_admin_can_create_edit_block_and_inspect_client(web_management
         session.add(
             Parcel(
                 tracking_number="MANAGE000001",
-                client_code="J-8226",
+                client_code="H-8226",
                 user_id=client_id,
                 status=ParcelStatus.IN_TRANSIT,
             )
@@ -140,7 +140,7 @@ async def test_web_admin_can_change_status_for_whole_import(web_management_clien
     client, session_factory, bot = web_management_client
     async with session_factory() as session:
         user = User(
-            client_code="J-0001",
+            client_code="H-801",
             full_name="Иван Иванов",
             phone="+996555000000",
             telegram_id=12345,
@@ -189,7 +189,7 @@ async def test_web_admin_can_delegate_and_revoke_admin_access(web_management_cli
     created = await client.post(
         "/api/clients",
         json={
-            "client_code": "J-9001",
+            "client_code": "H-9001",
             "full_name": "Delegated Admin",
             "phone": "+996555900001",
             "city": "Bishkek",
@@ -219,13 +219,13 @@ async def test_web_admin_can_edit_parcel_owner_dates_and_delete(web_management_c
     client, session_factory, _ = web_management_client
     async with session_factory() as session:
         first_user = User(
-            client_code="J-1001",
+            client_code="H-1001",
             full_name="First Client",
             phone="+996555100001",
             telegram_id=1001,
         )
         second_user = User(
-            client_code="J-1002",
+            client_code="H-1002",
             full_name="Second Client",
             phone="+996555100002",
             telegram_id=1002,
@@ -245,14 +245,14 @@ async def test_web_admin_can_edit_parcel_owner_dates_and_delete(web_management_c
     updated = await client.patch(
         f"/api/parcels/{parcel_id}",
         json={
-            "client_code": "J-1002",
+            "client_code": "H-1002",
             "status": "IN_TRANSIT",
             "sent_date": "2026-08-21",
             "expected_date": "2026-09-05",
         },
     )
     assert updated.status_code == 200
-    assert updated.json()["parcel"]["client_code"] == "J-1002"
+    assert updated.json()["parcel"]["client_code"] == "H-1002"
     assert updated.json()["parcel"]["sent_date"] == "2026-08-21"
     assert updated.json()["parcel"]["expected_date"] == "2026-09-05"
 
@@ -275,7 +275,7 @@ async def test_web_admin_can_assign_batch_sent_and_expected_dates(web_management
         session.add(
             Parcel(
                 tracking_number="DATEDBATCH001",
-                client_code="J-7001",
+                client_code="H-7001",
                 import_id=batch.id,
                 status=ParcelStatus.CHINA_WAREHOUSE,
             )
@@ -309,7 +309,7 @@ async def test_web_admin_can_delete_batch_without_deleting_shipments(web_managem
         await session.flush()
         parcel = Parcel(
             tracking_number="DETACHED0001",
-            client_code="J-8001",
+            client_code="H-8001",
             import_id=batch.id,
             status=ParcelStatus.CHINA_WAREHOUSE,
         )
@@ -343,7 +343,7 @@ async def test_web_admin_can_delete_batch_together_with_shipments(web_management
         parcels = [
             Parcel(
                 tracking_number=f"DELETEALL000{index}",
-                client_code=f"J-810{index}",
+                client_code=f"H-810{index}",
                 import_id=batch.id,
                 status=ParcelStatus.CHINA_WAREHOUSE,
             )
@@ -367,12 +367,12 @@ async def test_web_admin_can_delete_batch_together_with_shipments(web_management
 
 async def test_web_excel_update_reuses_batch_and_rejects_exact_copy(web_management_client):
     client, session_factory, _ = web_management_client
-    original = _excel_bytes([("WEBIMPORT0001", "J-1001"), ("WEBIMPORT0002", "J-1002")])
+    original = _excel_bytes([("WEBIMPORT0001", "H-1001"), ("WEBIMPORT0002", "H-1002")])
     changed = _excel_bytes(
         [
-            ("WEBIMPORT0001", "J-1001"),
-            ("WEBIMPORT0002", "J-1002"),
-            ("WEBIMPORT0003", "J-1003"),
+            ("WEBIMPORT0001", "H-1001"),
+            ("WEBIMPORT0002", "H-1002"),
+            ("WEBIMPORT0003", "H-1003"),
         ]
     )
 

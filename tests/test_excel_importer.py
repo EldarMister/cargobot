@@ -12,18 +12,18 @@ def test_xlsx_reads_all_sheets_and_skips_headers_and_dates(tmp_path):
     first = workbook.active
     first.title = "Sheet1"
     first.append(["Трек-код", "Код клиента"])
-    first.append(["YT7592444294461", "j-329"])
+    first.append(["YT7592444294461", "h-829"])
     first.append([datetime(2025, 12, 22), None])
     first.append(["AD2025年12月22日", None])
     second = workbook.create_sheet("Sheet2")
-    second.append([9812328869266, "J-4040"])
+    second.append([9812328869266, "H-4040"])
     workbook.save(path)
 
     result = ExcelImporter().parse(path)
 
     assert [(row.sheet_name, row.tracking_number, row.client_code) for row in result.valid_rows] == [
-        ("Sheet1", "YT7592444294461", "J-329"),
-        ("Sheet2", "9812328869266", "J-4040"),
+        ("Sheet1", "YT7592444294461", "H-829"),
+        ("Sheet2", "9812328869266", "H-4040"),
     ]
     assert any("код клиента" in row.error.lower() for row in result.skipped_rows)
     assert any("дат" in row.error.lower() for row in result.skipped_rows)
@@ -36,14 +36,14 @@ def test_xls_is_supported(tmp_path):
     sheet.write(0, 0, "Tracking")
     sheet.write(0, 1, "Client")
     sheet.write(1, 0, "78999695208956")
-    sheet.write(1, 1, "J-8226")
+    sheet.write(1, 1, "H-8226")
     workbook.save(str(path))
 
     result = ExcelImporter().parse(path)
 
     assert len(result.valid_rows) == 1
     assert result.valid_rows[0].tracking_number == "78999695208956"
-    assert result.valid_rows[0].client_code == "J-8226"
+    assert result.valid_rows[0].client_code == "H-8226"
 
 
 def test_invalid_extension_is_rejected(tmp_path):

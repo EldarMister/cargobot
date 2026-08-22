@@ -167,6 +167,12 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 
 .form-panel { padding:22px 19px; }
 .form-panel h2 { margin-bottom:20px; }
+.warehouse-panel-heading { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; }
+.warehouse-panel-heading h2 { flex:1; margin:0; }
+#warehouse-panel-2 .warehouse-panel-heading h2 { text-align:right; }
+.warehouse-switch { width:42px; height:42px; flex:0 0 42px; display:grid; place-items:center; padding:0; border:1px solid #c9dfff; border-radius:11px; color:var(--blue-dark); background:#f3f8ff; }
+.warehouse-switch svg { width:22px; height:22px; }
+.warehouse-switch:active { background:#e5f1ff; transform:scale(.96); }
 .form-panel label { display:block; margin-top:16px; color:#566278; font-size:12px; font-weight:560; }
 .form-panel input,.form-panel textarea { width:100%; margin-top:8px; padding:0 15px; border:1px solid var(--line); border-radius:11px; color:var(--text); background:#fff; outline:0; }
 .form-panel input { height:52px; }

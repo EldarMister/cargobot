@@ -9,18 +9,18 @@ from app.services.normalization import (
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("j-8226", "J-8226"), (" J-0001 ", "J-0001"), ("j - 329", "J-329")],
+    [("h-8226", "H-8226"), (" H-801 ", "H-801"), ("h - 829", "H-829")],
 )
 def test_normalize_client_code(raw, expected):
     assert normalize_client_code(raw) == expected
 
 
-@pytest.mark.parametrize("code", ["J-1", "J-0001", "j-8226", " j - 55 "])
+@pytest.mark.parametrize("code", ["H-801", "H-802", "h-8226", " h - 999 "])
 def test_valid_client_code(code):
     assert is_valid_client_code(code)
 
 
-@pytest.mark.parametrize("code", ["", "8226", "K-12", "J-", "J-ABC", "J-1-2"])
+@pytest.mark.parametrize("code", ["", "8226", "J-801", "H-800", "H-", "H-ABC", "H-1-2"])
 def test_invalid_client_code(code):
     assert not is_valid_client_code(code)
 
