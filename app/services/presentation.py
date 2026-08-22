@@ -5,6 +5,7 @@ from html import escape
 from app.core.dates import as_local, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel
+from app.db.repositories.settings import warehouse_is_configured, warehouse_setting_key
 from app.i18n import normalize_language, status_label, t
 
 
@@ -73,23 +74,44 @@ def format_parcel_list(
 
 
 def warehouse_text(settings: dict[str, str], client_code: str, language: str = "ru") -> str:
-    receiver = " ".join(part for part in [settings.get("warehouse_receiver", ""), client_code] if part)
-    warehouse = " ".join(part for part in [settings.get("warehouse_name", ""), client_code] if part)
+    slots = [slot for slot in (1, 2) if warehouse_is_configured(settings, slot)] or [1]
+    return "\n\n".join(
+        _warehouse_text(settings, client_code, language, slot, numbered=len(slots) > 1)
+        for slot in slots
+    )
+
+
+def _warehouse_text(
+    settings: dict[str, str],
+    client_code: str,
+    language: str,
+    slot: int,
+    *,
+    numbered: bool,
+) -> str:
+    receiver_value = settings.get(warehouse_setting_key("receiver", slot), "")
+    phone = settings.get(warehouse_setting_key("phone", slot), "")
+    address = settings.get(warehouse_setting_key("address", slot), "")
+    warehouse_value = settings.get(warehouse_setting_key("name", slot), "")
+    receiver = " ".join(part for part in [receiver_value, client_code] if part)
+    warehouse = " ".join(part for part in [warehouse_value, client_code] if part)
     missing = t("not_specified", language)
     return "\n".join(
         [
-            t("warehouse_title", language),
+            t("warehouse_title_numbered", language, number=slot)
+            if numbered
+            else t("warehouse_title", language),
             "",
             t("warehouse_receiver", language, value=escape(receiver) if receiver else missing),
             t(
                 "warehouse_phone",
                 language,
-                value=escape(settings.get("warehouse_phone", "")) or missing,
+                value=escape(phone) or missing,
             ),
             t(
                 "warehouse_address",
                 language,
-                value=escape(settings.get("warehouse_address", "")) or missing,
+                value=escape(address) or missing,
             ),
             t("warehouse_name", language, value=escape(warehouse) if warehouse else missing),
         ]

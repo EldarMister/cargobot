@@ -62,6 +62,7 @@ function toast(message, error = false) {
 async function api(path, options = {}) {
   const response = await fetch(path, {
     credentials: "same-origin",
+    cache: "no-store",
     headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
     ...options,
   });
@@ -313,7 +314,14 @@ function renderSettings(values) {
   $("#setting-phone").value = values.warehouse_phone || "";
   $("#setting-address").value = values.warehouse_address || "";
   $("#setting-name").value = values.warehouse_name || "";
+  $("#setting-receiver-2").value = values.warehouse_receiver_2 || "";
+  $("#setting-phone-2").value = values.warehouse_phone_2 || "";
+  $("#setting-address-2").value = values.warehouse_address_2 || "";
+  $("#setting-name-2").value = values.warehouse_name_2 || "";
   $("#setting-support").value = values.support_username || "";
+  $("#setting-whatsapp").value = values.contact_whatsapp || "";
+  $("#setting-local-warehouse-address").value = values.local_warehouse_address || "";
+  $("#setting-work-schedule").value = values.work_schedule || "";
 }
 
 function buildStatusControls() {
@@ -956,11 +964,34 @@ $("#settings-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   try {
     const result = await api("/api/settings", { method: "PATCH", body: JSON.stringify(values) });
-    state.settings = result;
+    renderSettings(result);
     state.defaultTransitDays = result.default_transit_days;
     $("#company-name").textContent = result.company_name;
     $("#transit-days").value = result.default_transit_days;
     toast(tr("Настройки сохранены"));
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+
+$("#delete-warehouse-2").addEventListener("click", async () => {
+  if (!confirm(tr("Удалить склад 2 и все его данные?"))) return;
+  if (state.demo) {
+    const values = {
+      ...state.settings,
+      warehouse_receiver_2: "",
+      warehouse_phone_2: "",
+      warehouse_address_2: "",
+      warehouse_name_2: "",
+    };
+    renderSettings(values);
+    return toast(tr("Демо: склад 2 удалён"));
+  }
+  const button = $("#delete-warehouse-2");
+  button.disabled = true;
+  try {
+    const result = await api("/api/settings/warehouses/2", { method: "DELETE" });
+    renderSettings(result);
+    toast(tr("Склад 2 удалён"));
   } catch (error) { toast(error.message, true); }
   finally { button.disabled = false; }
 });
@@ -981,7 +1012,23 @@ $("#client-search").addEventListener("input", () => {
   clientTimer = setTimeout(loadClients, 300);
 });
 $("#refresh-parcels").addEventListener("click", loadParcels);
-$("#refresh-clients").addEventListener("click", loadClients);
+$("#refresh-clients").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (button.disabled) return;
+  button.disabled = true;
+  button.classList.add("loading");
+  button.setAttribute("aria-busy", "true");
+  try {
+    await loadClients();
+    toast(tr("Список клиентов обновлён"));
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.classList.remove("loading");
+    button.removeAttribute("aria-busy");
+  }
+});
 $("#retry-auth").addEventListener("click", authenticate);
 $$('[data-language]').forEach((button) => button.addEventListener("click", () => {
   i18n.setLanguage(button.dataset.language);
@@ -1029,7 +1076,14 @@ const demo = {
     warehouse_phone: "18818913136",
     warehouse_address: "广东省广州市荔湾区站前路流花新街16号136",
     warehouse_name: "BCL库房",
+    warehouse_receiver_2: "",
+    warehouse_phone_2: "",
+    warehouse_address_2: "",
+    warehouse_name_2: "",
     support_username: "@bcl_support",
+    contact_whatsapp: "+996 555 123 456",
+    local_warehouse_address: "г. Бишкек, ул. Примерная, 10",
+    work_schedule: "Пн–Пт: 09:00–18:00\nСб: 10:00–15:00\nВс: выходной",
   },
 };
 

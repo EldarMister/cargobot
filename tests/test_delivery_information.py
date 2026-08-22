@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import func, select
 
+from app.bot.handlers.user.parcels import whatsapp_link
 from app.core.dates import calculate_expected_at, delivery_date_order_is_valid, parse_local_date
 from app.core.enums import ParcelStatus
 from app.db.models import Parcel, ParcelStatusHistory
@@ -119,6 +120,52 @@ def test_warehouse_address_includes_client_code():
     assert "Телефон: 18818913136" in text
     assert "Адрес: 广东省广州市" in text
     assert "Склад: BCL库房 J-8226" in text
+
+
+def test_whatsapp_setting_accepts_phone_or_ready_link():
+    assert whatsapp_link("+996 (555) 123-456") == "https://wa.me/996555123456"
+    assert whatsapp_link("https://wa.me/996555123456") == "https://wa.me/996555123456"
+    assert whatsapp_link("chat.whatsapp.com/invite-code") == (
+        "https://chat.whatsapp.com/invite-code"
+    )
+
+
+def test_warehouse_address_shows_both_configured_warehouses():
+    text = warehouse_text(
+        {
+            "warehouse_receiver": "First receiver",
+            "warehouse_address": "First address",
+            "warehouse_receiver_2": "Second receiver",
+            "warehouse_phone_2": "200-02",
+            "warehouse_address_2": "Second address",
+            "warehouse_name_2": "Second warehouse",
+        },
+        "J-8226",
+    )
+
+    assert "Адрес склада в Китае №1" in text
+    assert "Адрес склада в Китае №2" in text
+    assert "Получатель: First receiver J-8226" in text
+    assert "Адрес: First address" in text
+    assert "Получатель: Second receiver J-8226" in text
+    assert "Телефон: 200-02" in text
+    assert "Адрес: Second address" in text
+    assert "Склад: Second warehouse J-8226" in text
+
+
+def test_warehouse_address_shows_only_the_configured_warehouse():
+    text = warehouse_text(
+        {
+            "warehouse_receiver": "First receiver",
+            "warehouse_address": "First address",
+        },
+        "J-0001",
+    )
+
+    assert "Получатель: First receiver J-0001" in text
+    assert "Адрес: First address" in text
+    assert "№1" not in text
+    assert "№2" not in text
 
 
 def test_delivery_reminders_are_one_time_and_do_not_mark_arrival():

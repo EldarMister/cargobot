@@ -104,18 +104,25 @@ def settings_keyboard() -> InlineKeyboardMarkup:
     labels = {
         "company_name": "Название компании",
         "default_transit_days": "Стандартный срок доставки",
-        "warehouse_receiver": "Получатель склада",
-        "warehouse_phone": "Телефон склада",
-        "warehouse_address": "Адрес склада",
-        "warehouse_name": "Название склада",
+        "warehouse_receiver": "Склад 1 · Получатель",
+        "warehouse_phone": "Склад 1 · Телефон",
+        "warehouse_address": "Склад 1 · Адрес",
+        "warehouse_name": "Склад 1 · Название",
+        "warehouse_receiver_2": "Склад 2 · Получатель",
+        "warehouse_phone_2": "Склад 2 · Телефон",
+        "warehouse_address_2": "Склад 2 · Адрес",
+        "warehouse_name_2": "Склад 2 · Название",
         "support_username": "Контакт поддержки",
         "contact_whatsapp": "WhatsApp",
         "local_warehouse_address": "Адрес местного склада",
         "work_schedule": "График работы",
     }
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows = [
             [InlineKeyboardButton(text=label, callback_data=f"setting:{key}")]
             for key, label in labels.items()
         ]
+    rows.insert(
+        10,
+        [InlineKeyboardButton(text="🗑 Удалить склад 2", callback_data="warehouse_delete:2")],
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)

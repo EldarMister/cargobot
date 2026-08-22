@@ -55,10 +55,16 @@ async def settings_menu(message: Message, session: AsyncSession) -> None:
         "⚙️ <b>Настройки</b>\n\n"
         f"Компания: {escape(values['company_name']) or '—'}\n"
         f"Стандартный срок: {escape(values['default_transit_days']) or '12'} дней\n"
+        f"<b>Склад 1</b>\n"
         f"Получатель: {escape(values['warehouse_receiver']) or '—'}\n"
         f"Телефон: {escape(values['warehouse_phone']) or '—'}\n"
         f"Адрес: {escape(values['warehouse_address']) or '—'}\n"
-        f"Склад: {escape(values['warehouse_name']) or '—'}\n"
+        f"Название: {escape(values['warehouse_name']) or '—'}\n\n"
+        f"<b>Склад 2</b>\n"
+        f"Получатель: {escape(values['warehouse_receiver_2']) or '—'}\n"
+        f"Телефон: {escape(values['warehouse_phone_2']) or '—'}\n"
+        f"Адрес: {escape(values['warehouse_address_2']) or '—'}\n"
+        f"Название: {escape(values['warehouse_name_2']) or '—'}\n\n"
         f"Telegram поддержки: {escape(values['support_username']) or '—'}\n"
         f"WhatsApp: {escape(values['contact_whatsapp']) or '—'}\n"
         f"Местный склад: {escape(values['local_warehouse_address']) or '—'}\n"
@@ -78,6 +84,10 @@ async def setting_start(callback: CallbackQuery, state: FSMContext) -> None:
         "warehouse_phone",
         "warehouse_address",
         "warehouse_name",
+        "warehouse_receiver_2",
+        "warehouse_phone_2",
+        "warehouse_address_2",
+        "warehouse_name_2",
         "support_username",
         "contact_whatsapp",
         "local_warehouse_address",
@@ -88,6 +98,40 @@ async def setting_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminStates.setting_value)
     await state.update_data(setting_key=key)
     await callback.message.answer("Введите новое значение:", reply_markup=cancel_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("warehouse_delete:"))
+async def warehouse_delete_start(callback: CallbackQuery) -> None:
+    slot = int(callback.data.rsplit(":", 1)[1])
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, удалить", callback_data=f"warehouse_delete_confirm:{slot}"
+                ),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="warehouse_delete_cancel"),
+            ]
+        ]
+    )
+    await callback.message.answer(
+        f"Удалить все данные склада {slot}? Восстановить их автоматически не получится.",
+        reply_markup=markup,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("warehouse_delete_confirm:"))
+async def warehouse_delete_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
+    slot = int(callback.data.rsplit(":", 1)[1])
+    await SettingRepository(session).clear_warehouse(slot)
+    await callback.message.edit_text(f"✅ Склад {slot} удалён.")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "warehouse_delete_cancel")
+async def warehouse_delete_cancel(callback: CallbackQuery) -> None:
+    await callback.message.edit_text("Удаление склада отменено.")
     await callback.answer()
 
 

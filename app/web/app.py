@@ -109,7 +109,14 @@ class SettingsUpdateRequest(BaseModel):
     warehouse_phone: str = Field(default="", max_length=100)
     warehouse_address: str = Field(default="", max_length=1000)
     warehouse_name: str = Field(default="", max_length=200)
+    warehouse_receiver_2: str = Field(default="", max_length=200)
+    warehouse_phone_2: str = Field(default="", max_length=100)
+    warehouse_address_2: str = Field(default="", max_length=1000)
+    warehouse_name_2: str = Field(default="", max_length=200)
     support_username: str = Field(default="", max_length=100)
+    contact_whatsapp: str = Field(default="", max_length=300)
+    local_warehouse_address: str = Field(default="", max_length=1000)
+    work_schedule: str = Field(default="", max_length=1000)
 
 
 def _date(value: datetime | None) -> str | None:
@@ -285,12 +292,30 @@ def create_web_app(
         _: int = Depends(require_admin),
     ) -> dict:
         values = payload.model_dump()
+        values = {key: str(value).strip() for key, value in values.items()}
         async with session_factory() as session:
             repository = SettingRepository(session)
             for key, value in values.items():
-                await repository.set(key, str(value).strip())
+                await repository.set(key, value)
             await session.commit()
-        return {"ok": True, **values}
+        return {
+            "ok": True,
+            **values,
+            "default_transit_days": _transit_days(values["default_transit_days"]),
+        }
+
+    @app.delete("/api/settings/warehouses/{slot}")
+    async def delete_warehouse(slot: int, _: int = Depends(require_admin)) -> dict:
+        if slot not in {1, 2}:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Склад не найден")
+        async with session_factory() as session:
+            values = await SettingRepository(session).clear_warehouse(slot)
+            await session.commit()
+        return {
+            "ok": True,
+            **values,
+            "default_transit_days": _transit_days(values["default_transit_days"]),
+        }
 
     @app.get("/api/dashboard")
     async def dashboard(_: int = Depends(require_admin)) -> dict:

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#082c55">
   <meta name="description" content="Мобильная панель управления доставкой BCL EXPRESS">
   <title>BCL EXPRESS — Панель</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260821-12">
+  <link rel="stylesheet" href="/static/styles.css?v=20260822-2">
   <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
@@ -79,8 +79,11 @@
       <section class="view" data-view="settings">
         <form class="settings-form" id="settings-form">
           <section class="panel form-panel"><h2>Основные настройки</h2><label>Название компании<input id="setting-company" name="company_name" maxlength="80" required></label><label>Срок доставки по умолчанию, дней<input id="setting-days" name="default_transit_days" type="number" min="1" max="90" required></label></section>
-          <section class="panel form-panel"><h2>Адрес склада в Китае</h2><label>Получатель<input id="setting-receiver" name="warehouse_receiver" maxlength="200"></label><label>Телефон<input id="setting-phone" name="warehouse_phone" maxlength="100"></label><label>Адрес<textarea id="setting-address" name="warehouse_address" rows="4" maxlength="1000"></textarea></label><label>Название склада<input id="setting-name" name="warehouse_name" maxlength="200"></label></section>
-          <section class="panel form-panel"><h2>Поддержка</h2><label>Telegram поддержки<input id="setting-support" name="support_username" maxlength="100" placeholder="@username"></label></section>
+          <section class="panel form-panel"><h2>Адрес склада в Китае №1</h2><label>Получатель<input id="setting-receiver" name="warehouse_receiver" maxlength="200"></label><label>Телефон<input id="setting-phone" name="warehouse_phone" maxlength="100"></label><label>Адрес<textarea id="setting-address" name="warehouse_address" rows="4" maxlength="1000"></textarea></label><label>Название склада<input id="setting-name" name="warehouse_name" maxlength="200"></label></section>
+          <section class="panel form-panel"><h2>Адрес склада в Китае №2</h2><label>Получатель<input id="setting-receiver-2" name="warehouse_receiver_2" maxlength="200"></label><label>Телефон<input id="setting-phone-2" name="warehouse_phone_2" maxlength="100"></label><label>Адрес<textarea id="setting-address-2" name="warehouse_address_2" rows="4" maxlength="1000"></textarea></label><label>Название склада<input id="setting-name-2" name="warehouse_name_2" maxlength="200"></label><button type="button" class="danger-button warehouse-delete" id="delete-warehouse-2">Удалить склад 2</button></section>
+          <section class="panel form-panel"><h2>Поддержка</h2><label>Telegram поддержки<input id="setting-support" name="support_username" maxlength="100" placeholder="@username"></label><label>WhatsApp<input id="setting-whatsapp" name="contact_whatsapp" maxlength="300" placeholder="+996 555 123 456 или https://wa.me/..."></label></section>
+          <section class="panel form-panel"><h2>Адрес склада в Бишкеке</h2><label>Адрес<textarea id="setting-local-warehouse-address" name="local_warehouse_address" rows="5" maxlength="1000" placeholder="Город, улица, дом и ориентир"></textarea></label></section>
+          <section class="panel form-panel"><h2>График работы</h2><label>Рабочие дни и часы<textarea id="setting-work-schedule" name="work_schedule" rows="5" maxlength="1000" placeholder="Пн–Пт: 09:00–18:00&#10;Сб: 10:00–15:00&#10;Вс: выходной"></textarea></label></section>
           <button class="primary-button save-settings" type="submit">Сохранить настройки</button>
         </form>
       </section>
@@ -100,7 +103,7 @@
   <dialog class="sheet picker-sheet" id="picker-sheet"><form method="dialog"><div class="picker-heading"><h2 id="picker-title">Выберите вариант</h2><button type="submit" value="cancel" aria-label="Закрыть"><i data-lucide="x" aria-hidden="true"></i></button></div><div class="picker-options" id="picker-options"></div></form></dialog>
   <dialog class="sheet" id="import-sheet"><form id="import-form"><div class="sheet-handle"></div><p class="eyebrow">ЗАГРУЗКА ПАРТИИ</p><h2>Загрузить Excel</h2><label class="upload-zone" for="excel-file"><strong>Выбрать файл</strong><span id="file-name">.xls или .xlsx, до 20 МБ</span></label><input id="excel-file" name="file" type="file" accept=".xls,.xlsx" required hidden><label class="field-label" for="import-target">Куда загрузить</label><select id="import-target" name="target_import_id"><option value="">Создать новую партию</option></select><div class="import-analysis" id="import-analysis">После выбора файла система проверит похожие партии.</div><label class="field-label" for="import-status">Статус партии</label><select id="import-status" name="selected_status"></select><div id="transit-fields"><label class="field-label" for="sent-date">Дата выезда</label><input id="sent-date" name="sent_date" type="date"><label class="field-label" for="transit-days">Срок доставки, дней</label><input id="transit-days" name="transit_days" type="number" min="1" max="90" value="12"></div><div class="sheet-actions"><button type="button" class="secondary-button" id="cancel-import">Отмена</button><button type="submit" class="primary-button">Импортировать</button></div></form></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/i18n.js?v=20260821-11" defer></script>
-  <script src="/static/app.js?v=20260821-14" defer></script>
+  <script src="/static/i18n.js?v=20260822-5" defer></script>
+  <script src="/static/app.js?v=20260822-5" defer></script>
 </body>
 </html>

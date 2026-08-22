@@ -16,6 +16,18 @@ from app.services.presentation import format_parcel, format_parcel_list, warehou
 router = Router(name="user_parcels")
 
 
+def whatsapp_link(value: str) -> str | None:
+    value = value.strip()
+    lowered = value.lower()
+    allowed_hosts = ("wa.me/", "api.whatsapp.com/", "chat.whatsapp.com/")
+    if lowered.startswith(tuple(f"https://{host}" for host in allowed_hosts)):
+        return value
+    if lowered.startswith(allowed_hosts):
+        return f"https://{value}"
+    phone_digits = "".join(character for character in value if character.isdigit())
+    return f"https://wa.me/{phone_digits}" if phone_digits else None
+
+
 async def _current_user(message: Message, session: AsyncSession):
     user = await UserRepository(session).by_telegram_id(message.from_user.id)
     if not user:
@@ -118,20 +130,22 @@ async def contacts(message: Message, session: AsyncSession) -> None:
     settings = await SettingRepository(session).all()
     company = escape(settings.get("company_name") or "BCL EXPRESS")
     whatsapp = settings.get("contact_whatsapp", "").strip()
-    phone_digits = "".join(character for character in whatsapp if character.isdigit())
     support = settings.get("support_username", "").strip()
     address = escape(settings.get("local_warehouse_address", "").strip()) or t(
         "not_specified", language
     )
     lines = [t("contacts_title", language, company=company), ""]
     if whatsapp:
-        lines.append(f"💬 WhatsApp: {escape(whatsapp)}")
-    if phone_digits:
-        url = f"https://wa.me/{phone_digits}"
-        lines.append(f'📱 <a href="{url}">wa.me/{phone_digits}</a>')
-    elif support:
+        url = whatsapp_link(whatsapp)
+        label = escape(whatsapp)
+        lines.append(
+            f'💬 WhatsApp: <a href="{escape(url, quote=True)}">{label}</a>'
+            if url
+            else f"💬 WhatsApp: {label}"
+        )
+    if support:
         lines.append(t("contact_telegram", language, contact=escape(support)))
-    else:
+    if not whatsapp and not support:
         lines.append(t("contact_missing", language))
     lines.extend(["", t("warehouse_local", language, address=address)])
     await message.answer("\n".join(lines), parse_mode="HTML")

@@ -97,6 +97,45 @@ async def test_web_admin_can_create_edit_block_and_inspect_client(web_management
     assert [item["tracking_number"] for item in parcels.json()] == ["MANAGE000001"]
 
 
+async def test_web_admin_can_save_and_delete_second_warehouse(web_management_client):
+    client, _, _ = web_management_client
+    response = await client.patch(
+        "/api/settings",
+        json={
+            "company_name": "BCL EXPRESS",
+            "default_transit_days": 12,
+            "warehouse_receiver": "First receiver",
+            "warehouse_phone": "100-01",
+            "warehouse_address": "First address",
+            "warehouse_name": "First warehouse",
+            "warehouse_receiver_2": "Second receiver",
+            "warehouse_phone_2": "200-02",
+            "warehouse_address_2": "Second address",
+            "warehouse_name_2": "Second warehouse",
+            "support_username": "@support",
+            "contact_whatsapp": "https://wa.me/996555123456",
+            "local_warehouse_address": "г. Бишкек, ул. Примерная, 10",
+            "work_schedule": "Пн–Пт: 09:00–18:00\nСб: 10:00–15:00",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["warehouse_address_2"] == "Second address"
+    assert response.json()["work_schedule"].startswith("Пн–Пт")
+    assert response.json()["contact_whatsapp"] == "https://wa.me/996555123456"
+    assert response.json()["local_warehouse_address"].startswith("г. Бишкек")
+
+    deleted = await client.delete("/api/settings/warehouses/2")
+
+    assert deleted.status_code == 200
+    assert deleted.json()["warehouse_address_2"] == ""
+    saved = (await client.get("/api/settings")).json()
+    assert saved["warehouse_receiver_2"] == ""
+    assert saved["work_schedule"].endswith("10:00–15:00")
+    assert saved["contact_whatsapp"] == "https://wa.me/996555123456"
+    assert saved["local_warehouse_address"].endswith("Примерная, 10")
+
+
 async def test_web_admin_can_change_status_for_whole_import(web_management_client):
     client, session_factory, bot = web_management_client
     async with session_factory() as session:
