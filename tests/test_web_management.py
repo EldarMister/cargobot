@@ -262,6 +262,27 @@ async def test_web_admin_can_edit_parcel_owner_dates_and_delete(web_management_c
         assert await session.get(Parcel, parcel_id) is None
 
 
+async def test_web_admin_sees_all_parcels_without_legacy_150_item_limit(web_management_client):
+    client, session_factory, _ = web_management_client
+    async with session_factory() as session:
+        session.add_all(
+            [
+                Parcel(
+                    tracking_number=f"ALLPARCELS{index:04d}",
+                    client_code="H-801",
+                    status=ParcelStatus.CHINA_WAREHOUSE,
+                )
+                for index in range(175)
+            ]
+        )
+        await session.commit()
+
+    response = await client.get("/api/parcels")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 175
+
+
 async def test_web_admin_can_assign_batch_sent_and_expected_dates(web_management_client):
     client, session_factory, _ = web_management_client
     async with session_factory() as session:

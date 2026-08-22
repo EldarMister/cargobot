@@ -370,7 +370,6 @@ def create_web_app(
                 select(Parcel)
                 .options(selectinload(Parcel.user))
                 .order_by(Parcel.updated_at.desc())
-                .limit(150)
             )
             if query.strip():
                 pattern = f"%{query.strip()}%"
