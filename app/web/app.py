@@ -230,7 +230,10 @@ def create_web_app(
     @app.get("/", include_in_schema=False)
     @app.get("/panel", include_in_schema=False)
     async def panel() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(
+            STATIC_DIR / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post("/api/auth/telegram")
     async def telegram_auth(payload: TelegramAuthRequest, response: Response) -> dict:
