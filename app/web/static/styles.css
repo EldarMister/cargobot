@@ -40,6 +40,15 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 .view { display:none; }
 .view.active { display:block; animation:fade-in .18s ease; }
 @keyframes fade-in { from { opacity:.35; transform:translateY(3px); } }
+.server-notice { display:grid; grid-template-columns:58px minmax(0,1fr); align-items:start; gap:18px; margin-bottom:22px; padding:26px; border:2px solid #ef4444; border-radius:18px; color:#762020; background:linear-gradient(135deg,#fff1ef,#fff9f5); box-shadow:0 10px 30px rgba(190,40,35,.12); }
+.server-notice-icon { width:54px; height:54px; display:grid; place-items:center; border-radius:16px; color:#fff; background:#dc2626; font-size:34px; font-weight:850; line-height:1; }
+.server-notice-copy { min-width:0; }
+.server-notice-eyebrow { margin:0 0 7px; color:#c32727; font-size:11px; font-weight:800; letter-spacing:.11em; }
+.server-notice h2 { color:#681d1d; font-size:clamp(23px,4vw,32px); line-height:1.18; }
+.server-notice-copy > p:not(.server-notice-eyebrow) { margin:10px 0 0; color:#762020; font-size:17px; font-weight:570; line-height:1.5; }
+.server-notice-contact { width:fit-content; min-height:50px; display:inline-flex; align-items:center; gap:9px; margin-top:17px; padding:0 17px; border-radius:11px; color:#fff; background:#188c52; box-shadow:0 5px 13px rgba(24,140,82,.2); font-size:16px; font-weight:750; text-decoration:none; }
+.server-notice-contact:hover { background:#117743; }
+.server-notice-contact svg { width:21px; height:21px; }
 
 .drawer { position:fixed; z-index:40; top:0; left:max(0px,calc((100vw - 920px)/2)); width:min(84vw,328px); height:100dvh; overflow:hidden; padding:0 16px 24px; transform:translateX(-105%); border-right:1px solid rgba(8,43,82,.08); background:var(--surface); box-shadow:22px 0 55px rgba(6,31,61,.18); transition:transform .22s ease; }
 .drawer.open { transform:translateX(0); }
@@ -263,6 +272,11 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 
 @media (max-width:390px) {
   main { padding-inline:14px; }
+  .server-notice { grid-template-columns:42px minmax(0,1fr); gap:12px; padding:17px; }
+  .server-notice-icon { width:42px; height:42px; border-radius:12px; font-size:28px; }
+  .server-notice-copy > p:not(.server-notice-eyebrow) { font-size:15px; }
+  .server-notice-contact { min-height:46px; gap:7px; padding-inline:11px; font-size:14px; }
+  .server-notice-contact svg { width:19px; height:19px; }
   .topbar { padding-inline:14px; }
   .topbar h1 { font-size:21px; }
   .live-pill { font-size:12px; }

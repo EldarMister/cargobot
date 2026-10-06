@@ -17,11 +17,20 @@ from app.bot.middlewares import DatabaseMiddleware
 from app.core.config import Settings, get_settings
 from app.core.logging import setup_logging
 from app.db.models import User
+from app.db.repositories import SettingRepository
 from app.db.session import create_engine_and_sessionmaker
 from app.services.delivery_reminder_service import delivery_reminder_loop
 from app.web.app import create_web_app
 
 logger = logging.getLogger(__name__)
+
+SERVER_NOTICE_KEY_PREFIX = "server_contact_notice_20261006_"
+SERVER_NOTICE_TEXT = (
+    "<b>Важное сообщение о сервере</b>\n\n"
+    "Свяжитесь со мной по поводу сервера в течение недели. "
+    "Иначе проект придётся выключить.\n\n"
+    '<a href="https://wa.me/996220203021">Написать в WhatsApp: 0220203021</a>'
+)
 
 
 class EmbeddedUvicornServer(uvicorn.Server):
@@ -58,6 +67,38 @@ async def configure_menu_buttons(bot: Bot, settings: Settings, session_factory=N
             logger.exception("Could not configure Mini App menu button for admin %s", admin_id)
 
 
+async def broadcast_server_notice(bot: Bot, session_factory, settings: Settings) -> None:
+    """Send the server contact notice once to each configured or delegated admin."""
+    admin_ids = set(settings.admin_id_set)
+    async with session_factory() as session:
+        database_admin_ids = await session.scalars(
+            select(User.telegram_id).where(
+                User.telegram_id.is_not(None),
+                User.is_admin.is_(True),
+            )
+        )
+        admin_ids.update(database_admin_ids)
+
+    for admin_id in sorted(admin_ids):
+        delivery_key = f"{SERVER_NOTICE_KEY_PREFIX}{admin_id}"
+        async with session_factory() as session:
+            repository = SettingRepository(session)
+            if await repository.get(delivery_key):
+                continue
+
+        try:
+            await bot.send_message(admin_id, SERVER_NOTICE_TEXT, disable_web_page_preview=True)
+        except TelegramAPIError:
+            logger.exception("Could not send server notice to admin %s", admin_id)
+            continue
+
+        async with session_factory() as session:
+            repository = SettingRepository(session)
+            await repository.set(delivery_key, "sent")
+            await session.commit()
+        logger.info("Sent server contact notice to admin %s", admin_id)
+
+
 async def main() -> None:
     settings = get_settings()
     setup_logging(settings.log_level)
@@ -89,6 +130,7 @@ async def main() -> None:
     try:
         await bot.delete_webhook(drop_pending_updates=False)
         await configure_menu_buttons(bot, settings, session_factory)
+        await broadcast_server_notice(bot, session_factory, settings)
         await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         web_server.should_exit = True
