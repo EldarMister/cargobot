@@ -135,8 +135,7 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=False)
         await configure_menu_buttons(bot, settings, session_factory)
         await broadcast_server_notice(bot, session_factory, settings)
-        await asyncio.sleep(10)
-        logger.info("Shutdown notice delivery attempt finished; stopping the bot and web panel")
+        await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
     finally:
         web_server.should_exit = True
         reminder_task.cancel()
