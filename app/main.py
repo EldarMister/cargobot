@@ -24,12 +24,16 @@ from app.web.app import create_web_app
 
 logger = logging.getLogger(__name__)
 
-SERVER_NOTICE_KEY_PREFIX = "server_contact_notice_20261006_"
+SERVER_NOTICE_KEY_PREFIX = "service_shutdown_notice_20261009_"
 SERVER_NOTICE_TEXT = (
-    "<b>Важное сообщение о сервере</b>\n\n"
-    "Свяжитесь со мной по поводу сервера в течение недели. "
-    "Иначе проект придётся выключить.\n\n"
-    '<a href="https://wa.me/996220203021">Написать в WhatsApp: 0220203021</a>'
+    "<b>Уведомление о прекращении обслуживания</b>\n\n"
+    "Мы почти два месяца бесплатно поддерживали ваш сервис на нашем сервере. "
+    "За это время с нами так и не связались по номеру +996220203021.\n\n"
+    "В связи с этим мы остановили бота на нашем сервере.\n\n"
+    "Если хотите продолжить обслуживание у нас, свяжитесь по номеру +996220203021. "
+    "Если не хотите использовать наш сервер, можете развернуть бота на своём сервере "
+    "самостоятельно или поручить это другому разработчику.\n\n"
+    '<a href="https://github.com/EldarMister/cargobot.git">Исходный код проекта</a>'
 )
 
 
@@ -68,7 +72,7 @@ async def configure_menu_buttons(bot: Bot, settings: Settings, session_factory=N
 
 
 async def broadcast_server_notice(bot: Bot, session_factory, settings: Settings) -> None:
-    """Send the server contact notice once to each configured or delegated admin."""
+    """Send the service shutdown notice once to each configured or delegated admin."""
     admin_ids = set(settings.admin_id_set)
     async with session_factory() as session:
         database_admin_ids = await session.scalars(
@@ -131,7 +135,8 @@ async def main() -> None:
         await bot.delete_webhook(drop_pending_updates=False)
         await configure_menu_buttons(bot, settings, session_factory)
         await broadcast_server_notice(bot, session_factory, settings)
-        await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
+        await asyncio.sleep(10)
+        logger.info("Shutdown notice delivery attempt finished; stopping the bot and web panel")
     finally:
         web_server.should_exit = True
         reminder_task.cancel()
