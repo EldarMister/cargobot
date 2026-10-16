@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.enums import ImportRowResult, ParcelStatus
-from app.db.models import Import, ImportRevision, ImportRow, Parcel, User
+from app.db.models import Import, ImportRevision, ImportRow, Parcel, ParcelStatusHistory, User
 from app.services.excel_importer import ExcelParseResult
 from app.services.parcel_service import STATUS_DATE_FIELD, apply_delivery_dates
 
@@ -242,13 +242,10 @@ class ImportService:
                 if date_field:
                     setattr(parcel, date_field, datetime.now(UTC))
                 self.session.add(parcel)
-                await self.session.flush()
                 parcels[parcel.tracking_number] = parcel
-                from app.db.models import ParcelStatusHistory
-
                 self.session.add(
                     ParcelStatusHistory(
-                        parcel_id=parcel.id,
+                        parcel=parcel,
                         old_status=None,
                         new_status=selected_status,
                         changed_by=uploaded_by,
@@ -270,8 +267,6 @@ class ImportService:
                         parcel.due_notified_at = None
                     if date_field and getattr(parcel, date_field) is None:
                         setattr(parcel, date_field, datetime.now(UTC))
-                    from app.db.models import ParcelStatusHistory
-
                     self.session.add(
                         ParcelStatusHistory(
                             parcel_id=parcel.id,

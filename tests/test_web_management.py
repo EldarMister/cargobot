@@ -49,6 +49,50 @@ async def web_management_client():
     await engine.dispose()
 
 
+async def test_paid_service_panel_has_no_obsolete_server_warning(web_management_client):
+    client, _, _ = web_management_client
+    response = await client.get("/panel")
+    assert response.status_code == 200
+    assert "server-notice" not in response.text
+    assert "проект придётся выключить" not in response.text
+    assert "/static/app.js?v=20261016-1" in response.text
+
+
+@pytest.mark.parametrize("endpoint", ["/api/imports/analyze", "/api/imports"])
+@pytest.mark.parametrize("filename", ["damaged.xlsx", "damaged.xls"])
+async def test_invalid_excel_has_actionable_error_without_creating_batch(
+    web_management_client, endpoint, filename
+):
+    client, factory, _ = web_management_client
+    response = await client.post(
+        endpoint,
+        data={"selected_status": "CHINA_WAREHOUSE"},
+        files={"file": (filename, b"This is not an Excel workbook", XLSX_MIME)},
+    )
+    assert response.status_code == 422
+    assert "сохраните заново" in response.json()["detail"]
+    async with factory() as session:
+        assert await session.scalar(select(func.count(Import.id))) == 0
+
+
+async def test_retry_after_lost_upload_response_identifies_committed_batch(web_management_client):
+    client, factory, _ = web_management_client
+    content = _excel_bytes([("RETRY00000001", "H-801"), ("RETRY00000002", "H-801")])
+    form = {"selected_status": "CHINA_WAREHOUSE", "target_import_id": ""}
+    first = await client.post(
+        "/api/imports", data=form, files={"file": ("retry.xlsx", content, XLSX_MIME)}
+    )
+    assert first.status_code == 200
+    second = await client.post(
+        "/api/imports", data=form, files={"file": ("retry.xlsx", content, XLSX_MIME)}
+    )
+    assert second.status_code == 409
+    assert second.headers["X-Import-Id"] == str(first.json()["id"])
+    async with factory() as session:
+        assert await session.scalar(select(func.count(Import.id))) == 1
+        assert await session.scalar(select(func.count(Parcel.id))) == 2
+
+
 async def test_web_admin_can_create_edit_block_and_inspect_client(web_management_client):
     client, session_factory, _ = web_management_client
 

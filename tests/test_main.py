@@ -7,6 +7,34 @@ from app.core.config import Settings
 from app.main import configure_menu_buttons
 
 
+async def test_normal_startup_polls_without_sending_shutdown_messages(monkeypatch):
+    from app import main as entrypoint
+
+    settings = Settings(_env_file=None, BOT_TOKEN="123456:test-token", ADMIN_IDS="777")
+    bot = AsyncMock()
+    engine, storage = AsyncMock(), AsyncMock()
+    dispatcher = MagicMock()
+    dispatcher.start_polling = AsyncMock()
+    server = MagicMock()
+    server.serve = AsyncMock()
+    monkeypatch.setattr(entrypoint, "get_settings", lambda: settings)
+    monkeypatch.setattr(entrypoint, "Bot", MagicMock(return_value=bot))
+    monkeypatch.setattr(entrypoint, "Dispatcher", MagicMock(return_value=dispatcher))
+    monkeypatch.setattr(entrypoint, "MemoryStorage", MagicMock(return_value=storage))
+    monkeypatch.setattr(entrypoint, "create_engine_and_sessionmaker", lambda _: (engine, MagicMock()))
+    monkeypatch.setattr(entrypoint, "register_routers", MagicMock())
+    monkeypatch.setattr(entrypoint, "create_web_app", MagicMock())
+    monkeypatch.setattr(entrypoint, "EmbeddedUvicornServer", MagicMock(return_value=server))
+    monkeypatch.setattr(entrypoint, "delivery_reminder_loop", AsyncMock())
+
+    await entrypoint.main()
+
+    dispatcher.start_polling.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+    bot.session.close.assert_awaited_once()
+    engine.dispose.assert_awaited_once()
+
+
 @pytest.mark.asyncio
 async def test_configure_menu_buttons_keeps_commands_for_clients_and_adds_admin_app():
     bot = AsyncMock()

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from app.core.enums import ParcelStatus
 from app.db.models import Import, ImportRevision, Parcel, ParcelStatusHistory, User
@@ -13,6 +13,25 @@ from app.services.parcel_service import ParcelService
 
 def parsed(tracking="YT7592444294461", code="H-829"):
     return ExcelParseResult(rows=[ParsedExcelRow("Sheet1", 2, tracking_number=tracking, client_code=code)])
+
+
+async def test_large_import_batches_flushes_and_keeps_all_status_history_links(session):
+    flushes = []
+    event.listen(session.sync_session, "before_flush", lambda *_: flushes.append(True))
+    data = ExcelParseResult(rows=[
+        ParsedExcelRow("Sheet1", i + 1, tracking_number=f"BATCH{i:09d}", client_code="H-801")
+        for i in range(100)
+    ])
+    outcome = await ImportService(session).process(
+        data, "batch.xlsx", ParcelStatus.CHINA_WAREHOUSE, 777, auto_match=False
+    )
+    await session.commit()
+    assert outcome.import_record.created_rows == 100
+    assert len(flushes) < 10
+    linked = await session.scalar(
+        select(func.count(ParcelStatusHistory.id)).join(Parcel, Parcel.id == ParcelStatusHistory.parcel_id)
+    )
+    assert linked == 100
 
 
 async def test_repeat_import_updates_instead_of_duplicate(session):
@@ -135,6 +154,7 @@ async def test_new_in_transit_parcel_receives_explicit_delivery_dates(session):
     parcel = await session.scalar(select(Parcel))
 
     assert parcel.status == ParcelStatus.IN_TRANSIT
+    await session.refresh(parcel)
     assert parcel.sent_at == sent_at.replace(tzinfo=None)
     assert parcel.expected_at == expected_at.replace(tzinfo=None)
     assert outcome.import_record.sent_at == sent_at

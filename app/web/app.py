@@ -1,10 +1,12 @@
 import asyncio
 import hashlib
 import json
+import logging
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
+from zipfile import BadZipFile
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
@@ -23,18 +25,20 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
+from xlrd.biffh import XLRDError
 
 from app.core.config import Settings
 from app.core.dates import as_local, calculate_expected_at, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import AppSetting, Import, ImportRevision, Parcel, User
 from app.db.repositories import SettingRepository, UserRepository
-from app.services.excel_importer import ExcelImporter
+from app.services.excel_importer import ExcelImporter, ExcelParseResult
 from app.services.import_service import (
     DuplicateImportError,
     ImportBatchConflictError,
@@ -56,8 +60,40 @@ from app.web.auth import (
 )
 
 SESSION_COOKIE = "bcl_admin_session"
+logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 STATIC_DIR = Path(__file__).with_name("static")
+
+
+async def _parse_excel_upload(file: UploadFile) -> tuple[str, str, ExcelParseResult]:
+    filename = Path(file.filename or "import").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".xls", ".xlsx"}:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужен файл .xls или .xlsx")
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Файл больше 20 МБ")
+    file_hash = hashlib.sha256(content).hexdigest()
+    try:
+        with tempfile.TemporaryDirectory(prefix="bcl_web_excel_") as temp_dir:
+            path = Path(temp_dir) / f"upload{suffix}"
+            path.write_bytes(content)
+            parsed = await asyncio.to_thread(ExcelImporter().parse, path)
+    except (BadZipFile, InvalidFileException, XLRDError, ValueError, KeyError) as exc:
+        logger.warning("Cannot read Excel upload: filename=%s error=%s", filename, type(exc).__name__)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Не удалось прочитать Excel. Откройте файл в Excel и сохраните заново в формате .xlsx.",
+        ) from exc
+    return filename, file_hash, parsed
+
+
+def _duplicate_import_error(import_id: int) -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        f"Этот Excel уже загружен в партию №{import_id}",
+        headers={"X-Import-Id": str(import_id)},
+    )
 
 
 class TelegramAuthRequest(BaseModel):
@@ -706,14 +742,7 @@ def create_web_app(
         file: Annotated[UploadFile, File()],
         _: int = Depends(require_admin),
     ) -> dict:
-        filename = Path(file.filename or "import").name
-        suffix = Path(filename).suffix.lower()
-        if suffix not in {".xls", ".xlsx"}:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужен файл .xls или .xlsx")
-        content = await file.read(MAX_UPLOAD_BYTES + 1)
-        if len(content) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Файл больше 20 МБ")
-        file_hash = hashlib.sha256(content).hexdigest()
+        filename, file_hash, parsed = await _parse_excel_upload(file)
         async with session_factory() as session:
             duplicate = await session.execute(
                 select(Import.id, Import.filename)
@@ -729,10 +758,6 @@ def create_web_app(
                     },
                     "suggestion": None,
                 }
-            with tempfile.TemporaryDirectory(prefix="bcl_web_analyze_") as temp_dir:
-                path = Path(temp_dir) / f"upload{suffix}"
-                path.write_bytes(content)
-                parsed = await asyncio.to_thread(ExcelImporter().parse, path)
             suggestion = await ImportService(session).find_similar_import(parsed, filename)
             return {
                 "duplicate": None,
@@ -759,14 +784,7 @@ def create_web_app(
         target_import_id: Annotated[int | None, Form()] = None,
         admin_id: int = Depends(require_admin),
     ) -> dict:
-        filename = Path(file.filename or "import").name
-        suffix = Path(filename).suffix.lower()
-        if suffix not in {".xls", ".xlsx"}:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Нужен файл .xls или .xlsx")
-        content = await file.read(MAX_UPLOAD_BYTES + 1)
-        if len(content) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Файл больше 20 МБ")
-        file_hash = hashlib.sha256(content).hexdigest()
+        filename, file_hash, parsed = await _parse_excel_upload(file)
         sent_at = _parse_web_date(sent_date)
         expected_at = None
         if selected_status == ParcelStatus.IN_TRANSIT:
@@ -783,10 +801,6 @@ def create_web_app(
                     status.HTTP_422_UNPROCESSABLE_ENTITY,
                     "Срок должен быть от 1 до 90 дней",
                 ) from exc
-        with tempfile.TemporaryDirectory(prefix="bcl_web_import_") as temp_dir:
-            path = Path(temp_dir) / f"upload{suffix}"
-            path.write_bytes(content)
-            parsed = await asyncio.to_thread(ExcelImporter().parse, path)
         async with session_factory() as session:
             try:
                 outcome = await ImportService(session).process(
@@ -803,10 +817,7 @@ def create_web_app(
                 await session.commit()
             except DuplicateImportError as exc:
                 await session.rollback()
-                raise HTTPException(
-                    status.HTTP_409_CONFLICT,
-                    f"Этот Excel уже загружен в партию №{exc.import_id}",
-                ) from exc
+                raise _duplicate_import_error(exc.import_id) from exc
             except ImportNotFoundError as exc:
                 await session.rollback()
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Партия не найдена") from exc
@@ -819,6 +830,11 @@ def create_web_app(
                 ) from exc
             except IntegrityError as exc:
                 await session.rollback()
+                duplicate_id = await session.scalar(
+                    select(ImportRevision.import_id).where(ImportRevision.file_hash == file_hash)
+                )
+                if duplicate_id is not None:
+                    raise _duplicate_import_error(duplicate_id) from exc
                 raise HTTPException(
                     status.HTTP_409_CONFLICT,
                     "Этот Excel уже был загружен",

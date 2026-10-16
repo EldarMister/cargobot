@@ -20,6 +20,9 @@ const state = {
   selectedImport: null,
   importDuplicate: false,
   importAnalysisToken: 0,
+  importAnalysisPending: false,
+  importSubmitting: false,
+  importFileError: false,
   reloadTimer: null,
 };
 
@@ -59,18 +62,38 @@ function toast(message, error = false) {
   toast.timer = setTimeout(() => { element.className = "toast"; }, 2800);
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
-    ...options,
-  });
-  if (!response.ok) {
+async function api(path, options = {}, networkRetries = 0) {
+  for (let attempt = 0; ; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(path, {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: options.body instanceof FormData ? {} : { "Content-Type": "application/json" },
+        ...options,
+      });
+      if (response.ok) return await response.json();
+    } catch (cause) {
+      if (attempt < networkRetries && !options.signal?.aborted) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        continue;
+      }
+      throw new Error(tr("Не удалось связаться с сервером. Проверьте интернет и повторите загрузку."), { cause });
+    }
+    if ([502, 503, 504].includes(response.status) && attempt < networkRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
+    const completedImport = response.headers.get("X-Import-Id");
+    if (path === "/api/imports" && response.status === 409 && completedImport) {
+      return { id: Number(completedImport), already_imported: true };
+    }
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.detail ? tr(data.detail) : tr("Не удалось выполнить действие"));
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map((item) => item.msg).filter(Boolean).join("; ")
+      : data.detail;
+    throw new Error(typeof detail === "string" ? tr(detail) : tr("Не удалось выполнить действие"));
   }
-  return response.json();
 }
 
 function openDrawer() {
@@ -864,12 +887,16 @@ $("#client-block-form").addEventListener("submit", async (event) => {
   finally { button.disabled = false; }
 });
 
-function renderImportTargets(selectedValue) {
+function renderImportTargets(selectedValue, selectedFilename = "") {
   const select = $("#import-target");
   if (!select) return;
   const selected = selectedValue === undefined ? select.value : String(selectedValue || "");
-  select.innerHTML = `<option value="">${tr("Создать новую партию")}</option>${state.imports.map((item) =>
-    `<option value="${item.id}">${tr("Партия")} №${item.id} · ${escapeHtml(item.filename)}</option>`).join("")}`;
+  const targets = [...state.imports];
+  if (selected && !targets.some((item) => String(item.id) === selected)) {
+    targets.push({ id: selected, filename: selectedFilename });
+  }
+  select.innerHTML = `<option value="">${tr("Создать новую партию")}</option>${targets.map((item) =>
+    `<option value="${item.id}">${tr("Партия")} №${item.id}${item.filename ? ` · ${escapeHtml(item.filename)}` : ""}</option>`).join("")}`;
   if ([...select.options].some((option) => option.value === selected)) select.value = selected;
 }
 
@@ -880,38 +907,60 @@ function setImportAnalysis(text, kind = "") {
 }
 
 function resetImportAnalysis() {
+  state.importAnalysisToken += 1;
+  state.importAnalysisPending = false;
   state.importDuplicate = false;
+  state.importFileError = false;
+  const button = $("#import-form [type=submit]");
+  button.disabled = state.importSubmitting;
+  button.textContent = tr(state.importSubmitting ? "Обрабатываю…" : "Импортировать");
   renderImportTargets("");
   setImportAnalysis(tr("После выбора файла система проверит похожие партии."));
 }
 
 function openImportDialog() {
+  $("#import-form").reset();
+  $("#file-name").textContent = tr(".xls или .xlsx, до 20 МБ");
+  $("#transit-days").value = state.defaultTransitDays;
+  $("#transit-fields").hidden = $("#import-status").value !== "IN_TRANSIT";
   resetImportAnalysis();
   $("#import-sheet").showModal();
 }
 $("#open-import").addEventListener("click", openImportDialog);
 $("#cancel-import").addEventListener("click", () => $("#import-sheet").close());
+$("#import-sheet").addEventListener("close", resetImportAnalysis);
 $("#excel-file").addEventListener("change", async (event) => {
   const file = event.target.files[0];
+  resetImportAnalysis();
   $("#file-name").textContent = file?.name || tr(".xls или .xlsx, до 20 МБ");
   state.importDuplicate = false;
   if (!file || state.demo) return resetImportAnalysis();
+  const button = $("#import-form [type=submit]");
+  if (file.size > 20 * 1024 * 1024 || !/\.(xls|xlsx)$/i.test(file.name)) {
+    state.importFileError = true;
+    button.disabled = true;
+    setImportAnalysis(tr(file.size > 20 * 1024 * 1024 ? "Файл больше 20 МБ" : "Нужен файл .xls или .xlsx"), "warning");
+    return;
+  }
   const token = ++state.importAnalysisToken;
+  state.importAnalysisPending = true;
+  button.disabled = true;
+  button.textContent = tr("Проверяю файл…");
   setImportAnalysis(tr("Проверяю файл и ищу похожую партию…"));
   const form = new FormData();
   form.append("file", file);
   try {
-    const analysis = await api("/api/imports/analyze", { method: "POST", body: form });
+    const analysis = await api("/api/imports/analyze", { method: "POST", body: form }, 1);
     if (token !== state.importAnalysisToken) return;
     if (analysis.duplicate) {
       state.importDuplicate = true;
-      renderImportTargets(analysis.duplicate.import_id);
+      renderImportTargets(analysis.duplicate.import_id, analysis.duplicate.filename);
       setImportAnalysis(
         tr("Этот файл уже загружен в партию №{id}. Повторный импорт не требуется.", { id: analysis.duplicate.import_id }),
         "warning",
       );
     } else if (analysis.suggestion) {
-      renderImportTargets(analysis.suggestion.import_id);
+      renderImportTargets(analysis.suggestion.import_id, analysis.suggestion.filename);
       setImportAnalysis(
         tr("Найдена похожая партия №{id}: совпало {overlap} из {total} трек-кодов. Будет обновлена эта партия.", {
           id: analysis.suggestion.import_id,
@@ -927,33 +976,50 @@ $("#excel-file").addEventListener("change", async (event) => {
   } catch (error) {
     if (token !== state.importAnalysisToken) return;
     setImportAnalysis(error.message, "warning");
+  } finally {
+    if (token === state.importAnalysisToken) {
+      state.importAnalysisPending = false;
+      button.disabled = state.importSubmitting || state.importDuplicate;
+      button.textContent = tr("Импортировать");
+    }
   }
 });
-$("#import-target").addEventListener("change", () => { state.importDuplicate = false; });
 $("#import-status").addEventListener("change", (event) => {
   $("#transit-fields").hidden = event.target.value !== "IN_TRANSIT";
 });
 $("#import-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (state.importSubmitting || state.importAnalysisPending || state.importFileError) return;
   if (state.importDuplicate) return toast(tr("Этот файл уже был загружен"), true);
   if (state.demo) {
     $("#import-sheet").close();
     return toast(tr("Демо: Excel обработан"));
   }
   const button = event.target.querySelector("[type=submit]");
+  state.importSubmitting = true;
   button.disabled = true;
   button.textContent = tr("Обрабатываю…");
   try {
-    const result = await api("/api/imports", { method: "POST", body: new FormData(event.target) });
+    const result = await api("/api/imports", { method: "POST", body: new FormData(event.target) }, 1);
     $("#import-sheet").close();
     event.target.reset();
     $("#file-name").textContent = tr(".xls или .xlsx, до 20 МБ");
     resetImportAnalysis();
-    const action = result.is_revision ? tr("Партия обновлена") : tr("Новая партия создана");
-    toast(`${action}. ${tr("Новых")}: ${result.created}, ${tr("обновлено")}: ${result.updated}`);
+    if (result.already_imported) {
+      toast(tr("Этот файл уже загружен в партию №{id}. Повторный импорт не требуется.", { id: result.id }));
+    } else {
+      const action = result.is_revision ? tr("Партия обновлена") : tr("Новая партия создана");
+      toast(`${action}. ${tr("Новых")}: ${result.created}, ${tr("обновлено")}: ${result.updated}`);
+    }
     await Promise.all([loadImports(), loadParcels(), loadDashboard()]);
-  } catch (error) { toast(error.message, true); }
-  finally { button.disabled = false; button.textContent = tr("Импортировать"); }
+  } catch (error) {
+    setImportAnalysis(error.message, "warning");
+    toast(error.message, true);
+  } finally {
+    state.importSubmitting = false;
+    button.disabled = false;
+    button.textContent = tr("Импортировать");
+  }
 });
 
 $("#settings-form").addEventListener("submit", async (event) => {
