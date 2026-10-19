@@ -23,6 +23,7 @@ const state = {
   importAnalysisPending: false,
   importSubmitting: false,
   importFileError: false,
+  importFile: null,
   reloadTimer: null,
 };
 
@@ -911,6 +912,7 @@ function resetImportAnalysis() {
   state.importAnalysisPending = false;
   state.importDuplicate = false;
   state.importFileError = false;
+  state.importFile = null;
   const button = $("#import-form [type=submit]");
   button.disabled = state.importSubmitting;
   button.textContent = tr(state.importSubmitting ? "Обрабатываю…" : "Импортировать");
@@ -929,6 +931,27 @@ function openImportDialog() {
 $("#open-import").addEventListener("click", openImportDialog);
 $("#cancel-import").addEventListener("click", () => $("#import-sheet").close());
 $("#import-sheet").addEventListener("close", resetImportAnalysis);
+
+function readImportFile(file) {
+  // Android content:// files can become unreadable between selection and fetch
+  // (ERR_UPLOAD_FILE_CHANGED). Start reading in the change event, before touching
+  // size/lastModified, and use only the in-memory bytes for every upload/retry.
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Blob([reader.result], { type: "application/octet-stream" }));
+    reader.onerror = reader.onabort = () => reject(new Error(tr(
+      "Не удалось прочитать файл на телефоне. Сохраните его в «Загрузки» и выберите оттуда ещё раз.",
+    )));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function importFormData(form) {
+  const data = form ? new FormData(form) : new FormData();
+  data.set("file", state.importFile.blob, state.importFile.name);
+  return data;
+}
+
 $("#excel-file").addEventListener("change", async (event) => {
   const file = event.target.files[0];
   resetImportAnalysis();
@@ -936,10 +959,10 @@ $("#excel-file").addEventListener("change", async (event) => {
   state.importDuplicate = false;
   if (!file || state.demo) return resetImportAnalysis();
   const button = $("#import-form [type=submit]");
-  if (file.size > 20 * 1024 * 1024 || !/\.(xls|xlsx)$/i.test(file.name)) {
+  if (!/\.(xls|xlsx)$/i.test(file.name)) {
     state.importFileError = true;
     button.disabled = true;
-    setImportAnalysis(tr(file.size > 20 * 1024 * 1024 ? "Файл больше 20 МБ" : "Нужен файл .xls или .xlsx"), "warning");
+    setImportAnalysis(tr("Нужен файл .xls или .xlsx"), "warning");
     return;
   }
   const token = ++state.importAnalysisToken;
@@ -947,10 +970,19 @@ $("#excel-file").addEventListener("change", async (event) => {
   button.disabled = true;
   button.textContent = tr("Проверяю файл…");
   setImportAnalysis(tr("Проверяю файл и ищу похожую партию…"));
-  const form = new FormData();
-  form.append("file", file);
   try {
-    const analysis = await api("/api/imports/analyze", { method: "POST", body: form }, 1);
+    let blob;
+    try {
+      blob = await readImportFile(file);
+      if (token !== state.importAnalysisToken) return;
+      if (blob.size > 20 * 1024 * 1024) throw new Error(tr("Файл больше 20 МБ"));
+      if (!blob.size) throw new Error(tr("Файл пустой. Выберите Excel с товарами."));
+      state.importFile = { name: file.name, blob };
+    } catch (error) {
+      if (token === state.importAnalysisToken) state.importFileError = true;
+      throw error;
+    }
+    const analysis = await api("/api/imports/analyze", { method: "POST", body: importFormData() }, 1);
     if (token !== state.importAnalysisToken) return;
     if (analysis.duplicate) {
       state.importDuplicate = true;
@@ -979,7 +1011,7 @@ $("#excel-file").addEventListener("change", async (event) => {
   } finally {
     if (token === state.importAnalysisToken) {
       state.importAnalysisPending = false;
-      button.disabled = state.importSubmitting || state.importDuplicate;
+      button.disabled = state.importSubmitting || state.importDuplicate || state.importFileError;
       button.textContent = tr("Импортировать");
     }
   }
@@ -995,12 +1027,13 @@ $("#import-form").addEventListener("submit", async (event) => {
     $("#import-sheet").close();
     return toast(tr("Демо: Excel обработан"));
   }
+  if (!state.importFile) return;
   const button = event.target.querySelector("[type=submit]");
   state.importSubmitting = true;
   button.disabled = true;
   button.textContent = tr("Обрабатываю…");
   try {
-    const result = await api("/api/imports", { method: "POST", body: new FormData(event.target) }, 1);
+    const result = await api("/api/imports", { method: "POST", body: importFormData(event.target) }, 1);
     $("#import-sheet").close();
     event.target.reset();
     $("#file-name").textContent = tr(".xls или .xlsx, до 20 МБ");

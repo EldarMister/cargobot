@@ -55,7 +55,7 @@ async def test_paid_service_panel_has_no_obsolete_server_warning(web_management_
     assert response.status_code == 200
     assert "server-notice" not in response.text
     assert "проект придётся выключить" not in response.text
-    assert "/static/app.js?v=20261016-1" in response.text
+    assert "/static/app.js?v=20261019-1" in response.text
 
 
 @pytest.mark.parametrize("endpoint", ["/api/imports/analyze", "/api/imports"])

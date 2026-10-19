@@ -1,6 +1,8 @@
 (function () {
   const translations = {
     en: {
+      "Не удалось прочитать файл на телефоне. Сохраните его в «Загрузки» и выберите оттуда ещё раз.": "Cannot read the file on your phone. Save it to Downloads and select it there again.",
+      "Файл пустой. Выберите Excel с товарами.": "The file is empty. Choose an Excel file with shipments.",
       "Проверяю файл…": "Checking file…",
       "Файл больше 20 МБ": "The file exceeds 20 MB",
       "Нужен файл .xls или .xlsx": "Choose an .xls or .xlsx file",
@@ -103,6 +105,8 @@
       "Подтвердить удаление": "Confirm deletion"
     },
     zh: {
+      "Не удалось прочитать файл на телефоне. Сохраните его в «Загрузки» и выберите оттуда ещё раз.": "无法读取手机上的文件。请将其保存到下载文件夹，然后重新选择。",
+      "Файл пустой. Выберите Excel с товарами.": "文件为空。请选择包含货物的Excel文件。",
       "Проверяю файл…": "正在检查文件…",
       "Файл больше 20 МБ": "文件超过20 MB",
       "Нужен файл .xls или .xlsx": "请选择.xls或.xlsx文件",

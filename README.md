@@ -183,6 +183,15 @@ ruff check .
 python -m compileall -q app tests
 ```
 
+Проверка формы загрузки (Node.js 20+):
+
+```powershell
+node --test tests/test_web_upload.cjs
+```
+
+Эти тесты проверяют загрузку из Android Telegram WebView: чтение выбранного файла
+один раз, отправку копии из памяти, повтор после обрыва связи и ошибки доступа к файлу.
+
 Тесты используют SQLite только как изолированную in-memory среду; production-конфигурация
 всегда работает с PostgreSQL.
 
