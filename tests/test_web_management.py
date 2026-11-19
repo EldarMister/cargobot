@@ -131,6 +131,65 @@ async def test_client_messages_require_admin_and_existing_client(web_management_
     bot.send_message.assert_not_awaited()
 
 
+async def test_personal_contact_resolves_current_username_without_sending_any_message(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    bot.get_chat.return_value.username = "current_client"
+    response = await client.post(
+        f"/api/clients/{user_id}/telegram-contact", json={"expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"url": "https://t.me/current_client", "profile_sent": False}
+    bot.get_chat.assert_awaited_once_with(8155571090)
+    bot.send_message.assert_not_awaited()
+
+
+async def test_contact_without_username_sends_profile_button_only_to_requesting_admin(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory, is_active=False)
+    bot.get_chat.return_value.username = None
+    response = await client.post(
+        f"/api/clients/{user_id}/telegram-contact", json={"expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"url": None, "profile_sent": True}
+    bot.send_message.assert_awaited_once()
+    sent = bot.send_message.call_args.kwargs
+    assert sent["chat_id"] == 777
+    assert sent["reply_markup"].inline_keyboard[0][0].url == "tg://user?id=8155571090"
+    assert "H-853" in sent["text"]
+
+
+async def test_contact_checks_auth_binding_and_recipient_before_telegram_calls(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    response = await client.post(
+        f"/api/clients/{user_id}/telegram-contact", json={"expected_telegram_id": 123}
+    )
+    assert response.status_code == 409
+    client.cookies.clear()
+    response = await client.post(
+        f"/api/clients/{user_id}/telegram-contact", json={"expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == 401
+    bot.get_chat.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
+
+
+async def test_contact_card_failure_does_not_claim_success(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    bot.get_chat.return_value.username = None
+    bot.send_message.side_effect = TelegramNetworkError(
+        method=SendMessage(chat_id=777, text="profile"), message="timeout"
+    )
+    response = await client.post(
+        f"/api/clients/{user_id}/telegram-contact", json={"expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == 502
+    assert "Не удалось открыть контакт" in response.json()["detail"]
+
+
 def _excel_bytes(rows: list[tuple[str, str]]) -> bytes:
     workbook = openpyxl.Workbook()
     sheet = workbook.active
@@ -169,7 +228,7 @@ async def test_paid_service_panel_has_no_obsolete_server_warning(web_management_
     assert response.status_code == 200
     assert "server-notice" not in response.text
     assert "проект придётся выключить" not in response.text
-    assert "/static/app.js?v=20261119-1" in response.text
+    assert "/static/app.js?v=20261119-2" in response.text
 
 
 @pytest.mark.parametrize("endpoint", ["/api/imports/analyze", "/api/imports"])

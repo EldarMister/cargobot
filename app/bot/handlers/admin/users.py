@@ -29,8 +29,8 @@ from app.services.user_service import UserService
 router = Router(name="admin_users")
 
 
-def user_actions(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def user_actions(user_id: int, telegram_id: int | None = None) -> InlineKeyboardMarkup:
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✉️ Написать клиенту", callback_data=f"user_message:{user_id}")],
             [
@@ -41,6 +41,11 @@ def user_actions(user_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔗 Отвязать Telegram", callback_data=f"user_unlink:{user_id}")],
         ]
     )
+    if telegram_id:
+        keyboard.inline_keyboard.insert(1, [InlineKeyboardButton(
+            text="👤 Личный Telegram", url=f"tg://user?id={telegram_id}",
+        )])
+    return keyboard
 
 
 async def user_text(user: User, repository: UserRepository) -> str:
@@ -85,7 +90,7 @@ async def search_result(message: Message, state: FSMContext, session: AsyncSessi
         await message.answer(
             await user_text(user, repository),
             parse_mode="HTML",
-            reply_markup=user_actions(user.id),
+            reply_markup=user_actions(user.id, user.telegram_id),
         )
     if data.get("unlink_requested"):
         await message.answer("Нажмите «Отвязать Telegram» в карточке нужного клиента.")

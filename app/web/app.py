@@ -38,6 +38,7 @@ from app.core.dates import as_local, calculate_expected_at, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import AppSetting, Import, ImportRevision, Parcel, User
 from app.db.repositories import SettingRepository, UserRepository
+from app.services.client_contact_service import open_client_contact
 from app.services.client_message_service import ClientMessageError, send_client_message
 from app.services.excel_importer import ExcelImporter, ExcelParseResult
 from app.services.import_service import (
@@ -139,9 +140,12 @@ class ClientAdminRequest(BaseModel):
     is_admin: bool
 
 
-class ClientMessageRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=4096)
+class ClientContactRequest(BaseModel):
     expected_telegram_id: int
+
+
+class ClientMessageRequest(ClientContactRequest):
+    text: str = Field(min_length=1, max_length=4096)
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -554,6 +558,23 @@ def create_web_app(
                 _client_payload(user, parcel_count, settings.admin_id_set)
                 for user, parcel_count in rows
             ]
+
+    @app.post("/api/clients/{client_id}/telegram-contact")
+    async def client_telegram_contact(
+        client_id: int,
+        payload: ClientContactRequest,
+        admin_id: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            try:
+                return await open_client_contact(
+                    bot, user, expected_telegram_id=payload.expected_telegram_id, admin_id=admin_id,
+                )
+            except ClientMessageError as exc:
+                raise HTTPException(exc.status_code, str(exc)) from exc
 
     @app.post("/api/clients/{client_id}/messages")
     async def message_client(

@@ -83,7 +83,8 @@ async function api(path, options = {}, networkRetries = 0) {
       }
       const message = path.endsWith("/messages")
         ? "Не удалось подтвердить отправку. Перед повтором уточните, получил ли клиент сообщение."
-        : "Не удалось связаться с сервером. Проверьте интернет и повторите загрузку.";
+        : path.endsWith("/telegram-contact") ? "Не удалось открыть контакт. Попробуйте ещё раз."
+          : "Не удалось связаться с сервером. Проверьте интернет и повторите загрузку.";
       throw new Error(tr(message), { cause });
     }
     if ([502, 503, 504].includes(response.status) && attempt < networkRetries) {
@@ -283,6 +284,8 @@ function openClientDetail(clientId) {
   $("#client-block-action").textContent = client.is_blocked ? tr("Изменить блокировку") : tr("Заблокировать");
   $("#client-admin-action").textContent = client.is_admin ? tr("Убрать админку") : tr("Выдать админку");
   $("#client-admin-action").disabled = Boolean(client.is_system_admin);
+  $("#client-danger-actions").open = false;
+  $("#client-personal-action").disabled = !client.telegram_id;
   $("#client-message-action").disabled = !client.telegram_id || client.is_blocked;
   $("#client-message-hint").textContent = !client.telegram_id
     ? tr("Telegram клиента не привязан. Клиент должен открыть бота и привязать свой H-код.")
@@ -805,6 +808,27 @@ function openClientMessage(client) {
 }
 
 $("#client-message-action").addEventListener("click", () => openClientMessage(state.selectedClient));
+$("#client-personal-action").addEventListener("click", async (event) => {
+  const client = state.selectedClient;
+  if (!client?.telegram_id) return;
+  const button = event.currentTarget;
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    if (state.demo) return toast(tr("Демо: откроется личный Telegram клиента"));
+    const result = await api(`/api/clients/${client.id}/telegram-contact`, {
+      method: "POST", body: JSON.stringify({ expected_telegram_id: client.telegram_id }),
+    });
+    if (result.url) {
+      if (tg?.openTelegramLink) tg.openTelegramLink(result.url);
+      else window.open(result.url, "_blank", "noopener,noreferrer");
+    } else {
+      toast(tr("Кнопка профиля отправлена вам в чат с ботом"));
+      tg?.close?.();
+    }
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
 $("#client-message-template").addEventListener("click", () => {
   if (state.messageRecipient) $("#client-message-text").value = clientPickupMessage(state.messageRecipient);
 });

@@ -243,7 +243,12 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 .batch-actions { grid-template-columns:1fr 1.6fr; }
 .batch-actions .danger-button { grid-column:1/-1; grid-row:2; }
 .client-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.client-actions #client-admin-action { grid-column:1/-1; }
+.client-danger { margin-top:16px; border:1px solid #efb7bd; border-radius:10px; background:#fff7f7; }
+.client-danger summary { padding:15px; color:#b42332; font-weight:700; cursor:pointer; }
+.client-danger p { margin:0; padding:0 15px 12px; color:#8f312b; font-size:12px; line-height:1.5; }
+.client-danger-buttons { display:grid; gap:8px; padding:0 12px 12px; }
+#client-personal-action { margin-top:10px; }
+#client-personal-action:disabled { opacity:.5; cursor:not-allowed; }
 .client-actions #client-message-action { grid-column:1/-1; }
 .message-hint { color:var(--muted); font-size:12px; line-height:1.5; }
 .message-recipient { font-weight:700; overflow-wrap:anywhere; }

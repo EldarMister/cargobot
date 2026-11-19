@@ -1,6 +1,14 @@
 (function () {
   const translations = {
     en: {
+      "Написать через бота": "Message through bot",
+      "Написать в личку": "Open private chat",
+      "⚠ Опасные действия": "⚠ Dangerous actions",
+      "Изменение прав администратора и блокировка влияют на доступ клиента.": "Admin permissions and blocking affect client access.",
+      "Если нет username, кнопка профиля придёт вам в чат с ботом.": "Without a username, a profile button will be sent to your chat with the bot.",
+      "Кнопка профиля отправлена вам в чат с ботом": "Profile button sent to your chat with the bot",
+      "Демо: откроется личный Telegram клиента": "Demo: opens the client’s personal Telegram",
+      "Не удалось открыть контакт. Попробуйте ещё раз.": "Could not open contact. Please try again.",
       "Написать клиенту": "Message client",
       "СООБЩЕНИЕ КЛИЕНТУ": "CLIENT MESSAGE",
       "Сообщение придёт клиенту в чат с ботом.": "The client will receive this message in their chat with the bot.",
@@ -124,6 +132,14 @@
       "Подтвердить удаление": "Confirm deletion"
     },
     zh: {
+      "Написать через бота": "通过机器人发送",
+      "Написать в личку": "打开私聊",
+      "⚠ Опасные действия": "⚠ 危险操作",
+      "Изменение прав администратора и блокировка влияют на доступ клиента.": "更改管理员权限或封禁会影响客户访问。",
+      "Если нет username, кнопка профиля придёт вам в чат с ботом.": "如无用户名，资料按钮将发送到您与机器人的聊天。",
+      "Кнопка профиля отправлена вам в чат с ботом": "已向您与机器人的聊天发送资料按钮",
+      "Демо: откроется личный Telegram клиента": "演示：打开客户的Telegram",
+      "Не удалось открыть контакт. Попробуйте ещё раз.": "无法打开联系人，请重试。",
       "Написать клиенту": "联系客户",
       "СООБЩЕНИЕ КЛИЕНТУ": "客户消息",
       "Сообщение придёт клиенту в чат с ботом.": "客户将在与机器人的聊天中收到消息。",
