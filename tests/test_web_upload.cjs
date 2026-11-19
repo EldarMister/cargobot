@@ -14,9 +14,10 @@ function panel() {
       value: '', options: [], listeners: {}, disabled: false,
       classList: { add() {}, remove() {}, toggle() {} },
       setAttribute() {}, reset() {},
-      querySelector: () => element('#import-form [type=submit]'),
+      querySelector: () => element(`${selector} [type=submit]`),
       addEventListener(type, fn) { this.listeners[type] = fn; },
-      close() { element('#import-sheet').listeners.close(); },
+      showModal() { this.open = true; },
+      close() { this.open = false; this.listeners.close?.(); },
     });
     return elements.get(selector);
   }
@@ -170,4 +171,42 @@ test('empty and oversized captured files are rejected before any network request
     assert.equal(p.element('#import-form [type=submit]').disabled, true);
     assert.equal(p.state().importFileError, true);
   }
+});
+
+test('client message sends to the shown recipient once despite double submission', async () => {
+  const p = panel();
+  vm.runInContext("openClientMessage({id:7,client_code:'H-853',full_name:'Клиент',telegram_id:123456});", p.context);
+  assert.match(p.element('#client-message-recipient').textContent, /H-853/);
+  assert.match(p.element('#client-message-text').value, /H-853/);
+  p.element('#client-message-text').value = 'Ваш груз <прибыл> & ждёт вас';
+  let complete;
+  p.context.fetch = (url, options) => {
+    p.requests.push({url, options});
+    return new Promise(resolve => { complete = resolve; });
+  };
+  const event = {preventDefault() {}, target:p.element('#client-message-form')};
+  const first = p.element('#client-message-form').listeners.submit(event);
+  await p.element('#client-message-form').listeners.submit(event);
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.element('#client-message-form [type=submit]').disabled, true);
+  assert.equal(p.requests[0].url, '/api/clients/7/messages');
+  assert.deepEqual(JSON.parse(p.requests[0].options.body), {
+    text:'Ваш груз <прибыл> & ждёт вас', expected_telegram_id:123456,
+  });
+  complete(new Response(JSON.stringify({ok:true,message_id:42})));
+  await first;
+  assert.equal(p.element('#client-message-sheet').open, false);
+});
+
+test('message network failure keeps draft and does not automatically resend', async () => {
+  const p = panel();
+  vm.runInContext("openClientMessage({id:7,client_code:'H-853',full_name:'Клиент',telegram_id:123456});", p.context);
+  p.element('#client-message-text').value = 'Личное сообщение';
+  p.context.fetch = async () => { p.requests.push({}); throw new TypeError('Lost response'); };
+  await p.element('#client-message-form').listeners.submit({preventDefault() {},target:p.element('#client-message-form')});
+  assert.equal(p.requests.length, 1);
+  assert.equal(p.element('#client-message-sheet').open, true);
+  assert.equal(p.element('#client-message-text').value, 'Личное сообщение');
+  assert.match(p.element('#client-message-error').textContent, /Перед повтором уточните/);
+  assert.equal(p.element('#client-message-error').hidden, false);
 });

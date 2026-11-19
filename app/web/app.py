@@ -38,6 +38,7 @@ from app.core.dates import as_local, calculate_expected_at, local_timezone
 from app.core.enums import ParcelStatus
 from app.db.models import AppSetting, Import, ImportRevision, Parcel, User
 from app.db.repositories import SettingRepository, UserRepository
+from app.services.client_message_service import ClientMessageError, send_client_message
 from app.services.excel_importer import ExcelImporter, ExcelParseResult
 from app.services.import_service import (
     DuplicateImportError,
@@ -136,6 +137,11 @@ class ClientBlockRequest(BaseModel):
 
 class ClientAdminRequest(BaseModel):
     is_admin: bool
+
+
+class ClientMessageRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+    expected_telegram_id: int
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -537,6 +543,10 @@ def create_web_app(
                         User.full_name.ilike(pattern),
                         User.phone.ilike(pattern),
                         cast(User.telegram_id, String).ilike(pattern),
+                        select(Parcel.id)
+                        .where(Parcel.client_code == User.client_code, Parcel.tracking_number.ilike(pattern))
+                        .correlate(User)
+                        .exists(),
                     )
                 )
             rows = (await session.execute(statement)).all()
@@ -544,6 +554,25 @@ def create_web_app(
                 _client_payload(user, parcel_count, settings.admin_id_set)
                 for user, parcel_count in rows
             ]
+
+    @app.post("/api/clients/{client_id}/messages")
+    async def message_client(
+        client_id: int,
+        payload: ClientMessageRequest,
+        admin_id: int = Depends(require_admin),
+    ) -> dict:
+        async with session_factory() as session:
+            user = await session.get(User, client_id)
+            if not user:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            try:
+                message_id = await send_client_message(
+                    bot, user, payload.text,
+                    expected_telegram_id=payload.expected_telegram_id, admin_id=admin_id,
+                )
+            except ClientMessageError as exc:
+                raise HTTPException(exc.status_code, str(exc)) from exc
+            return {"ok": True, "message_id": message_id}
 
     @app.post("/api/clients")
     async def create_client(

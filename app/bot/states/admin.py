@@ -16,6 +16,8 @@ class AdminStates(StatesGroup):
     user_add_phone = State()
     user_add_code = State()
     user_edit_value = State()
+    client_message_text = State()
+    client_message_confirm = State()
     broadcast_text = State()
     broadcast_confirm = State()
     setting_value = State()

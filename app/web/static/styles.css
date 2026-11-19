@@ -244,6 +244,13 @@ main { min-height:calc(100vh - 88px); padding:24px 18px calc(100px + env(safe-ar
 .batch-actions .danger-button { grid-column:1/-1; grid-row:2; }
 .client-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .client-actions #client-admin-action { grid-column:1/-1; }
+.client-actions #client-message-action { grid-column:1/-1; }
+.message-hint { color:var(--muted); font-size:12px; line-height:1.5; }
+.message-recipient { font-weight:700; overflow-wrap:anywhere; }
+.message-action { width:100%; padding:10px 12px; }
+#client-message-text { width:100%; min-height:160px; padding:12px; border:1px solid var(--line); border-radius:10px; resize:vertical; }
+#client-message-form .sheet-actions>* { padding:10px; }
+#client-message-action:disabled { opacity:.5; cursor:not-allowed; }
 .client-actions .danger-button { grid-column:1/-1; }
 .warning-box { margin-top:16px; padding:12px 13px; border:1px solid #ffd2cf; border-radius:10px; color:#8f312b; background:#fff5f4; font-size:11px; line-height:1.5; }
 .modal-list { max-height:60vh; overflow-y:auto; margin-top:8px; border:1px solid var(--line); border-radius:11px; }

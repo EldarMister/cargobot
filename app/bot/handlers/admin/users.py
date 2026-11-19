@@ -1,4 +1,5 @@
 from html import escape
+from secrets import token_urlsafe
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -13,6 +14,11 @@ from app.bot.states.admin import AdminStates
 from app.core.dates import local_date_text
 from app.db.models import User
 from app.db.repositories import UserRepository
+from app.services.client_message_service import (
+    ClientMessageError,
+    client_message_unavailable_reason,
+    send_client_message,
+)
 from app.services.normalization import (
     is_valid_client_code,
     normalize_client_code,
@@ -26,6 +32,7 @@ router = Router(name="admin_users")
 def user_actions(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="✉️ Написать клиенту", callback_data=f"user_message:{user_id}")],
             [
                 InlineKeyboardButton(text="✏️ ФИО", callback_data=f"user_edit:{user_id}:full_name"),
                 InlineKeyboardButton(text="✏️ Телефон", callback_data=f"user_edit:{user_id}:phone"),
@@ -60,7 +67,7 @@ async def search_start(message: Message, state: FSMContext) -> None:
         edit_requested=message.text == "✏️ Редактировать клиента",
     )
     await message.answer(
-        "Введите H-код, ФИО, телефон или Telegram ID:",
+        "Введите H-код, трек-код груза, ФИО, телефон или Telegram ID:",
         reply_markup=cancel_keyboard(),
     )
 
@@ -97,6 +104,81 @@ async def recent_users(message: Message, session: AsyncSession) -> None:
         marker = "📲" if user.telegram_id else "▫️"
         lines.append(f"{marker} <b>{user.client_code}</b> · {escape(user.full_name)}")
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("user_message:"))
+async def client_message_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    user = await session.get(User, int(callback.data.split(":", 1)[1]))
+    reason = client_message_unavailable_reason(user) if user else "Клиент не найден"
+    if reason:
+        await callback.answer(reason, show_alert=True)
+        return
+    await state.set_state(AdminStates.client_message_text)
+    await state.update_data(message_client_id=user.id, message_telegram_id=user.telegram_id)
+    await callback.message.answer(
+        f"Сообщение для {escape(user.full_name)} · <b>{user.client_code}</b>.\n"
+        "Введите текст (до 4096 символов). Клиент получит его в чате с ботом.\n\n"
+        f"Например: Здравствуйте! Ваш груз по коду {user.client_code} прибыл. "
+        "Пожалуйста, заберите его на нашем складе.",
+        reply_markup=cancel_keyboard(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(AdminStates.client_message_text, F.text)
+async def client_message_preview(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    text = message.text.strip()
+    if not text or len(text.encode("utf-16-le")) // 2 > 4096:
+        await message.answer("Введите сообщение длиной от 1 до 4096 символов.")
+        return
+    data = await state.get_data()
+    user = await session.get(User, data["message_client_id"])
+    if not user:
+        await state.clear()
+        await message.answer("Клиент не найден.", reply_markup=admin_menu_keyboard())
+        return
+    token = token_urlsafe(8)
+    await state.update_data(client_message=text, client_message_token=token)
+    await state.set_state(AdminStates.client_message_confirm)
+    # Separate recipient and text so the preview itself stays within Telegram's limit.
+    await message.answer(text, parse_mode=None)
+    await message.answer(
+        f"Отправить этот текст клиенту {escape(user.full_name)} · <b>{user.client_code}</b>?",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✉️ Отправить", callback_data=f"client_message:send:{token}"),
+            InlineKeyboardButton(text="Отмена", callback_data=f"client_message:cancel:{token}"),
+        ]]),
+    )
+
+
+@router.callback_query(AdminStates.client_message_confirm, F.data.startswith("client_message:"))
+async def client_message_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    _, action, token = callback.data.split(":", 2)
+    if token != data.get("client_message_token") or action not in {"send", "cancel"}:
+        await callback.answer("Это подтверждение устарело. Используйте последнее сообщение.", show_alert=True)
+        return
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    if action == "cancel":
+        await callback.message.answer("Отправка отменена.", reply_markup=admin_menu_keyboard())
+        return
+    user = await session.get(User, data["message_client_id"])
+    if not user:
+        await callback.message.answer("Клиент не найден.", reply_markup=admin_menu_keyboard())
+        return
+    try:
+        await send_client_message(
+            callback.bot, user, data["client_message"],
+            expected_telegram_id=data["message_telegram_id"], admin_id=callback.from_user.id,
+        )
+    except ClientMessageError as exc:
+        await callback.message.answer(str(exc), reply_markup=admin_menu_keyboard())
+        return
+    await callback.message.answer("✅ Сообщение отправлено клиенту.", reply_markup=admin_menu_keyboard())
 
 
 @router.callback_query(F.data.startswith("user_unlink:"))

@@ -17,6 +17,8 @@ const state = {
   settings: null,
   selectedParcel: null,
   selectedClient: null,
+  messageRecipient: null,
+  clientMessageSubmitting: false,
   selectedImport: null,
   importDuplicate: false,
   importAnalysisToken: 0,
@@ -79,7 +81,10 @@ async function api(path, options = {}, networkRetries = 0) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         continue;
       }
-      throw new Error(tr("Не удалось связаться с сервером. Проверьте интернет и повторите загрузку."), { cause });
+      const message = path.endsWith("/messages")
+        ? "Не удалось подтвердить отправку. Перед повтором уточните, получил ли клиент сообщение."
+        : "Не удалось связаться с сервером. Проверьте интернет и повторите загрузку.";
+      throw new Error(tr(message), { cause });
     }
     if ([502, 503, 504].includes(response.status) && attempt < networkRetries) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -278,6 +283,11 @@ function openClientDetail(clientId) {
   $("#client-block-action").textContent = client.is_blocked ? tr("Изменить блокировку") : tr("Заблокировать");
   $("#client-admin-action").textContent = client.is_admin ? tr("Убрать админку") : tr("Выдать админку");
   $("#client-admin-action").disabled = Boolean(client.is_system_admin);
+  $("#client-message-action").disabled = !client.telegram_id || client.is_blocked;
+  $("#client-message-hint").textContent = !client.telegram_id
+    ? tr("Telegram клиента не привязан. Клиент должен открыть бота и привязать свой H-код.")
+    : client.is_blocked ? tr("Клиент заблокирован в системе. Сначала снимите блокировку.")
+      : tr("Можно написать через бота без номера телефона.");
   $("#client-detail-sheet").showModal();
 }
 
@@ -441,7 +451,8 @@ async function loadClients() {
   if (state.demo) {
     const query = $("#client-search").value.trim().toLowerCase();
     state.clients = demo.clients.filter((client) =>
-      `${client.full_name} ${client.client_code} ${client.phone}`.toLowerCase().includes(query));
+      `${client.full_name} ${client.client_code} ${client.phone}`.toLowerCase().includes(query)
+      || demo.parcels.some((parcel) => parcel.client_code === client.client_code && parcel.tracking_number.toLowerCase().includes(query)));
   } else {
     state.clients = await api(`/api/clients?query=${encodeURIComponent($("#client-search").value.trim())}`);
   }
@@ -770,6 +781,78 @@ $("#batch-status-form").addEventListener("submit", async (event) => {
 });
 
 $("#open-client-create").addEventListener("click", () => openClientForm());
+
+function clientPickupMessage(client) {
+  const code = client.client_code;
+  if (client.language === "en") return `Hello! Your shipment for client code ${code} has arrived. Please collect it from our warehouse.`;
+  if (client.language === "zh") return `您好！客户编号 ${code} 的货物已到达。请到我们的仓库领取。`;
+  return `Здравствуйте! Ваш груз по коду ${code} прибыл. Пожалуйста, заберите его на нашем складе.`;
+}
+
+function openClientMessage(client) {
+  if (!client) return;
+  if (!client.telegram_id) return toast(tr("Telegram клиента не привязан. Клиент должен открыть бота и привязать свой H-код."), true);
+  if (client.is_blocked) return toast(tr("Клиент заблокирован в системе. Сначала снимите блокировку."), true);
+  if (state.clientMessageSubmitting) return;
+  state.messageRecipient = { ...client };
+  closeDialog("client-detail-sheet");
+  closeDialog("status-sheet");
+  $("#client-message-recipient").textContent = `${client.full_name} · ${client.client_code}`;
+  $("#client-message-text").value = clientPickupMessage(client);
+  $("#client-message-error").hidden = true;
+  $("#client-message-form [type=submit]").disabled = false;
+  $("#client-message-sheet").showModal();
+}
+
+$("#client-message-action").addEventListener("click", () => openClientMessage(state.selectedClient));
+$("#client-message-template").addEventListener("click", () => {
+  if (state.messageRecipient) $("#client-message-text").value = clientPickupMessage(state.messageRecipient);
+});
+$("#parcel-message-action").addEventListener("click", async (event) => {
+  const parcel = state.selectedParcel;
+  if (!parcel) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const clients = state.demo ? demo.clients : await api(`/api/clients?query=${encodeURIComponent(parcel.client_code)}`);
+    const client = clients.find((item) => item.client_code === parcel.client_code);
+    if (!client) return toast(tr("Клиент не найден"), true);
+    openClientMessage(client);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+});
+$("#client-message-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const recipient = state.messageRecipient;
+  const text = $("#client-message-text").value.trim();
+  if (!recipient || state.clientMessageSubmitting) return;
+  const errorBox = $("#client-message-error");
+  errorBox.hidden = true;
+  if (!text || text.length > 4096) {
+    errorBox.textContent = tr("Введите сообщение длиной от 1 до 4096 символов.");
+    errorBox.hidden = false;
+    return;
+  }
+  const button = event.target.querySelector("[type=submit]");
+  state.clientMessageSubmitting = true;
+  button.disabled = true;
+  button.textContent = tr("Отправляю…");
+  try {
+    if (!state.demo) await api(`/api/clients/${recipient.id}/messages`, {
+      method: "POST", body: JSON.stringify({ text, expected_telegram_id: recipient.telegram_id }),
+    });
+    closeDialog("client-message-sheet");
+    toast(tr(state.demo ? "Демо: сообщение отправлено" : "Сообщение отправлено клиенту"));
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+  } finally {
+    state.clientMessageSubmitting = false;
+    button.disabled = false;
+    button.textContent = tr("Отправить сообщение");
+  }
+});
+
 $("#client-edit-action").addEventListener("click", () => {
   const client = state.selectedClient;
   closeDialog("client-detail-sheet");

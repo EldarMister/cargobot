@@ -3,6 +3,13 @@ from unittest.mock import AsyncMock
 
 import openpyxl
 import pytest
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+)
+from aiogram.methods import SendMessage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -11,10 +18,117 @@ from app.core.config import Settings
 from app.core.enums import ParcelStatus
 from app.db.base import Base
 from app.db.models import Import, ImportRevision, Parcel, User
+from app.db.repositories import UserRepository
 from app.web.app import SESSION_COOKIE, create_web_app
 from app.web.auth import create_admin_session
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+async def _message_client(factory, **values):
+    async with factory() as session:
+        user = User(client_code="H-853", full_name="Клиент без телефона", phone="", telegram_id=8155571090)
+        for name, value in values.items():
+            setattr(user, name, value)
+        session.add(user)
+        await session.commit()
+        return user.id
+
+
+async def test_message_client_without_phone_uses_saved_id_and_plain_text(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    bot.send_message.return_value.message_id = 42
+    text = "Здравствуйте! <груз> & документы\nЗаберите ваш груз."
+    response = await client.post(
+        f"/api/clients/{user_id}/messages", json={"text": text, "expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message_id": 42}
+    bot.send_message.assert_awaited_once_with(chat_id=8155571090, text=text, parse_mode=None)
+
+
+async def test_client_search_by_tracking_keeps_full_parcel_count(web_management_client):
+    client, factory, _ = web_management_client
+    user_id = await _message_client(factory)
+    async with factory() as session:
+        session.add_all([
+            Parcel(tracking_number=track, client_code="H-853", user_id=user_id,
+                   status=ParcelStatus.CHINA_WAREHOUSE)
+            for track in ["MESSAGE12345", "OTHER1234567", "1234567890123456789012345"]
+        ])
+        session.add(User(client_code="H-854", full_name="Другой клиент", phone=""))
+        await session.commit()
+        users = await UserRepository(session).search("message12345")
+        assert [user.id for user in users] == [user_id]
+        users = await UserRepository(session).search("1234567890123456789012345")
+        assert [user.id for user in users] == [user_id]
+    for query in ["H-853", "message12345", "1234567890123456789012345"]:
+        response = await client.get("/api/clients", params={"query": query})
+        assert response.status_code == 200
+        assert [(row["id"], row["parcels"]) for row in response.json()] == [(user_id, 3)]
+
+
+@pytest.mark.parametrize("values,text,expected_id,status_code", [
+    ({"telegram_id": None}, "Груз прибыл", 8155571090, 409),
+    ({"is_active": False}, "Груз прибыл", 8155571090, 409),
+    ({}, "Груз прибыл", 111, 409),
+    ({}, "  \n ", 8155571090, 422),
+    ({}, "x" * 4097, 8155571090, 422),
+    ({}, "🚚" * 2049, 8155571090, 422),
+])
+async def test_invalid_message_or_unavailable_recipient_sends_nothing(
+    web_management_client, values, text, expected_id, status_code
+):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory, **values)
+    response = await client.post(
+        f"/api/clients/{user_id}/messages", json={"text": text, "expected_telegram_id": expected_id}
+    )
+    assert response.status_code == status_code
+    bot.send_message.assert_not_awaited()
+
+
+@pytest.mark.parametrize("kind,status_code,detail", [
+    ("forbidden", 409, "заблокировал"),
+    ("bad_request", 409, "недоступен"),
+    ("retry_after", 429, "позже"),
+    ("network", 502, "подтвердить"),
+])
+async def test_message_delivery_errors_are_actionable_without_retry(
+    web_management_client, kind, status_code, detail
+):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    method = SendMessage(chat_id=8155571090, text="Груз прибыл")
+    errors = {
+        "forbidden": TelegramForbiddenError(method=method, message="blocked by user"),
+        "bad_request": TelegramBadRequest(method=method, message="chat not found"),
+        "retry_after": TelegramRetryAfter(method=method, message="too many requests", retry_after=10),
+        "network": TelegramNetworkError(method=method, message="timeout"),
+    }
+    bot.send_message.side_effect = errors[kind]
+    response = await client.post(
+        f"/api/clients/{user_id}/messages", json={"text": "Груз прибыл", "expected_telegram_id": 8155571090}
+    )
+    assert response.status_code == status_code
+    assert detail in response.json()["detail"]
+    assert bot.send_message.await_count == 1
+
+
+async def test_client_messages_require_admin_and_existing_client(web_management_client):
+    client, factory, bot = web_management_client
+    user_id = await _message_client(factory)
+    payload = {"text": "Груз прибыл", "expected_telegram_id": 8155571090}
+    missing = await client.post("/api/clients/9999/messages", json=payload)
+    assert missing.status_code == 404
+    client.cookies.clear()
+    unauthenticated = await client.post(f"/api/clients/{user_id}/messages", json=payload)
+    assert unauthenticated.status_code == 401
+    client.cookies.set(SESSION_COOKIE, create_admin_session(12345, "123456:test-token"))
+    unauthorized = await client.post(f"/api/clients/{user_id}/messages", json=payload)
+    assert unauthorized.status_code == 403
+    bot.send_message.assert_not_awaited()
 
 
 def _excel_bytes(rows: list[tuple[str, str]]) -> bytes:
@@ -55,7 +169,7 @@ async def test_paid_service_panel_has_no_obsolete_server_warning(web_management_
     assert response.status_code == 200
     assert "server-notice" not in response.text
     assert "проект придётся выключить" not in response.text
-    assert "/static/app.js?v=20261019-1" in response.text
+    assert "/static/app.js?v=20261119-1" in response.text
 
 
 @pytest.mark.parametrize("endpoint", ["/api/imports/analyze", "/api/imports"])

@@ -19,8 +19,12 @@ class UserRepository:
             User.client_code.ilike(f"%{query}%"),
             User.full_name.ilike(f"%{query}%"),
             User.phone.ilike(f"%{query}%"),
+            select(Parcel.id)
+            .where(Parcel.client_code == User.client_code, Parcel.tracking_number.ilike(f"%{query}%"))
+            .correlate(User)
+            .exists(),
         ]
-        if query.isdigit():
+        if query.isascii() and query.isdecimal() and len(query) <= 19 and int(query) <= 2**63 - 1:
             conditions.append(User.telegram_id == int(query))
         rows = await self.session.scalars(select(User).where(or_(*conditions)).limit(limit))
         return list(rows)
