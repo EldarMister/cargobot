@@ -2,6 +2,8 @@ import re
 from datetime import date, datetime
 from decimal import Decimal
 
+import phonenumbers
+
 CLIENT_CODE_RE = re.compile(r"^H-(\d+)$", re.IGNORECASE)
 TRACKING_RE = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{5,127}$", re.IGNORECASE)
 DATE_TEXT_RE = re.compile(r"(?:\d{4}[年./-]\d{1,2}[月./-]\d{1,2}日?|^AD\s*\d{4})", re.IGNORECASE)
@@ -47,5 +49,12 @@ def normalize_name(value: str) -> str:
 
 
 def normalize_phone(value: str) -> str:
-    digits = re.sub(r"\D", "", value)
-    return f"+{digits}" if digits else ""
+    if not value.strip() or re.search(r"[^0-9+().\s-]", value):
+        return ""
+    try:
+        number = phonenumbers.parse(value, "KG")
+    except phonenumbers.NumberParseException:
+        return ""
+    if not phonenumbers.is_possible_number(number) or number.extension:
+        return ""
+    return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)

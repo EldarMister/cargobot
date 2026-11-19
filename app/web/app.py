@@ -26,7 +26,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from openpyxl.utils.exceptions import InvalidFileException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -121,14 +121,15 @@ class ImportStatusUpdateRequest(BaseModel):
 
 
 class ClientWriteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     full_name: str = Field(min_length=3, max_length=255)
-    phone: str = Field(min_length=8, max_length=32)
+    phone: str = Field(default="", max_length=32)
     city: str | None = Field(default=None, max_length=120)
-    telegram_id: int | None = None
 
 
 class ClientCreateRequest(ClientWriteRequest):
     client_code: str | None = Field(default=None, max_length=32)
+    telegram_id: int | None = None
 
 
 class ClientBlockRequest(BaseModel):
@@ -199,6 +200,7 @@ def _client_payload(user: User, parcel_count: int, system_admin_ids: set[int] | 
         "client_code": user.client_code,
         "full_name": user.full_name,
         "phone": user.phone,
+        "phone_valid": bool(normalize_phone(user.phone)),
         "city": user.city,
         "telegram_id": user.telegram_id,
         "language": user.language,
@@ -602,7 +604,7 @@ def create_web_app(
     ) -> dict:
         full_name = " ".join(payload.full_name.split())
         phone = normalize_phone(payload.phone)
-        if len(full_name) < 3 or len(phone) < 8:
+        if len(full_name) < 3 or (payload.phone.strip() and not phone):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Проверьте ФИО и телефон")
         async with session_factory() as session:
             repository = UserRepository(session)
@@ -649,16 +651,21 @@ def create_web_app(
     ) -> dict:
         full_name = " ".join(payload.full_name.split())
         phone = normalize_phone(payload.phone)
-        if len(full_name) < 3 or len(phone) < 8:
+        if len(full_name) < 3:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Проверьте ФИО и телефон")
         async with session_factory() as session:
             user = await session.get(User, client_id)
             if not user:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Клиент не найден")
+            if "phone" not in payload.model_fields_set:
+                phone = user.phone
+            if payload.phone.strip() and not phone:
+                if payload.phone != user.phone:
+                    raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Проверьте ФИО и телефон")
+                phone = user.phone  # Keep legacy data when editing a different field; never invent digits.
             user.full_name = full_name
             user.phone = phone
             user.city = " ".join(payload.city.split()) if payload.city else None
-            user.telegram_id = payload.telegram_id
             try:
                 await session.commit()
             except IntegrityError as exc:

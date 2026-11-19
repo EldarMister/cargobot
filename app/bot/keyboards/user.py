@@ -10,6 +10,13 @@ from app.i18n import LANGUAGE_NAMES, t
 USER_SELECTABLE_LANGUAGES = ("ru", "en")
 
 
+def phone_keyboard(language: str = "ru") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text=t("button.share_phone", language), request_contact=True)],
+        [KeyboardButton(text=t("button.cancel", language))],
+    ], resize_keyboard=True, one_time_keyboard=True)
+
+
 def language_keyboard(context: str = "start") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

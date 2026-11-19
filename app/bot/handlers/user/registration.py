@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.keyboards.user import (
     cancel_keyboard,
     main_menu_keyboard,
+    phone_keyboard,
     start_keyboard,
 )
 from app.bot.states.user import LinkStates, RegistrationStates
-from app.db.repositories import SettingRepository
+from app.db.repositories import SettingRepository, UserRepository
 from app.i18n import language_for_text, normalize_language, t, text_variants
-from app.services.normalization import is_valid_client_code, normalize_client_code
+from app.services.normalization import is_valid_client_code, normalize_client_code, normalize_phone
 from app.services.presentation import warehouse_text
 from app.services.user_service import UserService, UserServiceError
 
@@ -40,10 +41,33 @@ async def registration_name(message: Message, state: FSMContext, session: AsyncS
     if len(full_name) < 3:
         await message.answer(t("full_name_required", language))
         return
+    await state.update_data(full_name=full_name)
+    await state.set_state(RegistrationStates.phone)
+    await message.answer(t("phone_request", language), reply_markup=phone_keyboard(language))
+
+
+def _own_phone(message: Message) -> str:
+    if message.contact:
+        if message.contact.user_id != message.from_user.id or message.chat.type != "private":
+            return ""
+        return normalize_phone("+" + message.contact.phone_number.lstrip("+"))
+    return normalize_phone(message.text or "")
+
+
+@router.message(RegistrationStates.phone, F.contact)
+@router.message(RegistrationStates.phone, F.text)
+async def registration_phone(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    language = await _state_language(state)
+    phone = _own_phone(message)
+    if not phone:
+        await message.answer(t("phone_invalid", language), reply_markup=phone_keyboard(language))
+        return
+    data = await state.get_data()
     try:
         user = await UserService(session).register(
             telegram_id=message.from_user.id,
-            full_name=full_name,
+            full_name=data["full_name"],
+            phone=phone,
             language=language,
         )
     except UserServiceError as exc:
@@ -137,3 +161,20 @@ async def link_name(message: Message, state: FSMContext, session: AsyncSession) 
         reply_markup=main_menu_keyboard(language),
     )
     logger.info("Client linked: code=%s telegram_id=%s", user.client_code, message.from_user.id)
+    if not normalize_phone(user.phone):
+        await message.answer(t("phone_request_existing", language), reply_markup=phone_keyboard(language))
+
+
+@router.message(F.contact)
+async def update_own_phone(message: Message, session: AsyncSession) -> None:
+    user = await UserRepository(session).by_telegram_id(message.from_user.id)
+    if not user or not user.has_access():
+        return
+    phone = _own_phone(message)
+    language = normalize_language(user.language)
+    if not phone:
+        await message.answer(t("phone_invalid", language), reply_markup=phone_keyboard(language))
+        return
+    user.phone = phone
+    await session.flush()
+    await message.answer(t("phone_saved", language), reply_markup=main_menu_keyboard(language))

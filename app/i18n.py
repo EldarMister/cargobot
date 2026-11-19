@@ -13,6 +13,17 @@ LANGUAGE_NAMES: Final[dict[str, str]] = {
 
 TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
     "ru": {
+        "button.share_phone": "📱 Поделиться номером телефона",
+        "phone_request": (
+            "Нажмите «Поделиться номером телефона» или введите полный номер: "
+            "+996 555 123 456 (можно 0555 123 456)."
+        ),
+        "phone_request_existing": "Уточните ваш номер: нажмите «Поделиться номером телефона».",
+        "phone_invalid": (
+            "Номер неполный или контакт принадлежит другому человеку. "
+            "Поделитесь своим контактом кнопкой ниже."
+        ),
+        "phone_saved": "✅ Ваш номер телефона обновлён.",
         "choose_language": "Выберите язык",
         "language_changed": "✅ Язык изменён на русский.",
         "button.link": "🔗 Привязать существующий код",
@@ -129,6 +140,13 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "reminder.pending": "Точная дата прибытия уточняется.",
     },
     "en": {
+        "button.share_phone": "📱 Share my phone number",
+        "phone_request": "Tap Share my phone number or enter your full phone number including country code.",
+        "phone_request_existing": "Please update your phone using Share my phone number.",
+        "phone_invalid": (
+            "Incomplete number or someone else’s contact. Share your own contact using the button below."
+        ),
+        "phone_saved": "✅ Your phone number has been updated.",
         "choose_language": "Choose your language",
         "language_changed": "✅ Language changed to English.",
         "button.link": "🔗 Link an existing client code",
@@ -245,6 +263,11 @@ TRANSLATIONS: Final[dict[str, dict[str, str]]] = {
         "reminder.pending": "The exact arrival date is being confirmed.",
     },
     "zh": {
+        "button.share_phone": "📱 分享手机号码",
+        "phone_request": "请点击分享手机号码或输入包含国家代码的完整号码。",
+        "phone_request_existing": "请点击分享手机号码以更新您的号码。",
+        "phone_invalid": "号码不完整或属于他人。请通过下方按钮分享您自己的联系方式。",
+        "phone_saved": "✅ 您的电话号码已更新。",
         "choose_language": "请选择语言",
         "language_changed": "✅ 语言已切换为中文。",
         "button.link": "🔗 绑定已有客户编号",

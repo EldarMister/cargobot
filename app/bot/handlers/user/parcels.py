@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.bot.keyboards.user import cancel_keyboard, main_menu_keyboard
+from app.bot.keyboards.user import cancel_keyboard, main_menu_keyboard, phone_keyboard
 from app.bot.states.user import TrackingStates
 from app.core.dates import local_datetime_text
 from app.db.repositories import ParcelRepository, SettingRepository, UserRepository
@@ -118,6 +118,7 @@ async def profile(message: Message, session: AsyncSession) -> None:
                 created_at=local_datetime_text(user.created_at),
             ),
             parse_mode="HTML",
+            reply_markup=phone_keyboard(language),
         )
 
 

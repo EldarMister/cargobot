@@ -190,6 +190,32 @@ async def test_contact_card_failure_does_not_claim_success(web_management_client
     assert "Не удалось открыть контакт" in response.json()["detail"]
 
 
+async def test_client_edit_cannot_change_or_clear_telegram_binding(web_management_client):
+    client, factory, _ = web_management_client
+    user_id = await _message_client(factory, phone="+55501464")
+    payload = {"full_name": "Обновлённое имя", "phone": "+55501464", "city": "Бишкек"}
+    result = await client.patch(f"/api/clients/{user_id}", json=payload)
+    assert result.status_code == 200
+    assert result.json()["telegram_id"] == 8155571090
+    assert result.json()["phone_valid"] is False
+    for telegram_id in [None, 98765]:
+        result = await client.patch(f"/api/clients/{user_id}", json={**payload, "telegram_id": telegram_id})
+        assert result.status_code == 422
+    result = await client.patch(f"/api/clients/{user_id}", json={**payload, "phone": "12345678"})
+    assert result.status_code == 422
+    result = await client.patch(f"/api/clients/{user_id}", json={**payload, "phone": "0555 123 456"})
+    assert result.status_code == 200
+    assert result.json()["phone"] == "+996555123456"
+    assert result.json()["phone_valid"] is True
+    assert result.json()["telegram_id"] == 8155571090
+    result = await client.patch(f"/api/clients/{user_id}", json={"full_name": "Только новое имя"})
+    assert result.status_code == 200
+    assert result.json()["phone"] == "+996555123456"
+    assert result.json()["telegram_id"] == 8155571090
+    panel = await client.get("/panel")
+    assert 'id="client-form-telegram"' not in panel.text
+
+
 def _excel_bytes(rows: list[tuple[str, str]]) -> bytes:
     workbook = openpyxl.Workbook()
     sheet = workbook.active
@@ -228,7 +254,7 @@ async def test_paid_service_panel_has_no_obsolete_server_warning(web_management_
     assert response.status_code == 200
     assert "server-notice" not in response.text
     assert "проект придётся выключить" not in response.text
-    assert "/static/app.js?v=20261119-2" in response.text
+    assert "/static/app.js?v=20261119-3" in response.text
 
 
 @pytest.mark.parametrize("endpoint", ["/api/imports/analyze", "/api/imports"])
@@ -298,7 +324,6 @@ async def test_web_admin_can_create_edit_block_and_inspect_client(web_management
             "full_name": "Султанов Азим Бакытович",
             "phone": "+996555000000",
             "city": "Ош",
-            "telegram_id": 12345,
         },
     )
     assert edited.status_code == 200

@@ -12,12 +12,14 @@ from app.bot.keyboards.user import (
     USER_SELECTABLE_LANGUAGES,
     language_keyboard,
     main_menu_keyboard,
+    phone_keyboard,
     start_keyboard,
 )
 from app.bot.menu_button import set_admin_menu_button
 from app.core.config import get_settings
 from app.db.repositories import SettingRepository, UserRepository
 from app.i18n import language_for_text, normalize_language, t, text_variants
+from app.services.normalization import normalize_phone
 
 router = Router(name="user_start")
 
@@ -48,6 +50,10 @@ async def _send_start(
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(language),
             )
+            if not normalize_phone(user.phone):
+                await message.answer(
+                    t("phone_request_existing", language), reply_markup=phone_keyboard(language)
+                )
         else:
             await message.answer(t("access_denied", language))
         return

@@ -231,7 +231,7 @@ function renderClients() {
   $("#client-list").innerHTML = state.clients.length
     ? state.clients.map((client) => `
       <article class="table-row">
-        <div><strong>${escapeHtml(client.full_name)}</strong><small>${escapeHtml(client.phone)} · ${client.telegram_id ? tr("Telegram привязан") : tr("Telegram не привязан")}${client.is_admin ? ` · ${tr("Администратор")}` : ""}</small>${client.is_blocked ? `<span class="block-badge">${client.block_mode === "permanent" ? tr("Заблокирован") : `${i18n.language === "en" ? "Until" : i18n.language === "zh" ? "截至" : "До"} ${escapeHtml(client.blocked_until_text || tr("указанного срока"))}`}</span>` : ""}</div>
+        <div><strong>${escapeHtml(client.full_name)}</strong><small>${escapeHtml(client.phone ? `${client.phone}${client.phone_valid === false ? " · " + tr("Уточнить номер") : ""}` : tr("Не указан"))} · ${client.telegram_id ? tr("Telegram привязан") : tr("Telegram не привязан")}${client.is_admin ? ` · ${tr("Администратор")}` : ""}</small>${client.is_blocked ? `<span class="block-badge">${client.block_mode === "permanent" ? tr("Заблокирован") : `${i18n.language === "en" ? "Until" : i18n.language === "zh" ? "截至" : "До"} ${escapeHtml(client.blocked_until_text || tr("указанного срока"))}`}</span>` : ""}</div>
         <div><span class="table-cell-code">${escapeHtml(client.client_code)}</span></div>
         <div><b>${client.parcels}</b><small>${tr("товаров")}</small><button class="manage-action" data-manage-client="${client.id}">${tr("Открыть")}</button></div>
       </article>`).join("")
@@ -274,7 +274,7 @@ function openClientDetail(clientId) {
   $("#client-detail-name").textContent = client.full_name;
   $("#client-detail").innerHTML = `
     <div><span>${tr("H-код")}</span><b>${escapeHtml(client.client_code)}</b></div>
-    <div><span>${tr("Телефон")}</span><b>${escapeHtml(client.phone)}</b></div>
+    <div><span>${tr("Телефон")}</span><b>${escapeHtml(client.phone ? `${client.phone}${client.phone_valid === false ? " · " + tr("Уточнить номер") : ""}` : tr("Не указан"))}</b></div>
     <div><span>${tr("Город")}</span><b>${escapeHtml(client.city || tr("Не указан"))}</b></div>
     <div><span>Telegram ID</span><b>${escapeHtml(client.telegram_id || tr("Не привязан"))}</b></div>
     <div><span>${tr("Товары")}</span><b>${client.parcels}</b></div>
@@ -304,7 +304,6 @@ function openClientForm(client = null) {
   $("#client-form-name").value = client?.full_name || "";
   $("#client-form-phone").value = client?.phone || "";
   $("#client-form-city").value = client?.city || "";
-  $("#client-form-telegram").value = client?.telegram_id || "";
   $("#client-form-sheet").showModal();
 }
 
@@ -931,12 +930,10 @@ $("#client-block-mode").addEventListener("change", (event) => {
 $("#client-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const clientId = Number($("#client-form-id").value) || null;
-  const telegramId = $("#client-form-telegram").value.trim();
   const payload = {
     full_name: $("#client-form-name").value.trim(),
     phone: $("#client-form-phone").value.trim(),
     city: $("#client-form-city").value.trim() || null,
-    telegram_id: telegramId ? Number(telegramId) : null,
   };
   if (!clientId) payload.client_code = $("#client-form-code").value.trim() || null;
   const button = event.target.querySelector("[type=submit]");
